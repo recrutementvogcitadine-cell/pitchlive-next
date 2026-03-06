@@ -1,0 +1,256 @@
+:root {
+  --bg-deep: #050a16;
+  --bg-accent: #0f5134;
+  --panel: rgba(6, 17, 32, 0.66);
+  --line: rgba(255, 255, 255, 0.14);
+  --text: #f7fbff;
+  --muted: #b7c6d9;
+  --highlight: #ff5f1f;
+}
+
+.livePage {
+  min-height: 100vh;
+  background: radial-gradient(80% 100% at 0% 0%, #1f6f52 0%, transparent 45%),
+    radial-gradient(90% 100% at 100% 100%, #87420d 0%, transparent 48%),
+    var(--bg-deep);
+  color: var(--text);
+}
+
+.stage {
+  position: relative;
+  width: min(520px, 100vw);
+  min-height: 100vh;
+  margin: 0 auto;
+  overflow: hidden;
+}
+
+.stageVideoFrame {
+  position: absolute;
+  inset: 0;
+}
+
+.stageVideoBackdrop {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(160deg, #203852 0%, #12263b 45%, #09101f 100%);
+}
+
+.stageVideoGradient {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+}
+
+.agoraPlayer {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+}
+
+.liveHeader {
+  position: absolute;
+  top: 18px;
+  left: 14px;
+  right: 14px;
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  z-index: 5;
+}
+
+.liveBadge {
+  background: var(--highlight);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  padding: 6px 9px;
+  border-radius: 999px;
+}
+
+.liveMeta {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 8px 12px;
+  backdrop-filter: blur(6px);
+}
+
+.liveMeta h1 {
+  margin: 0;
+  font-size: 16px;
+}
+
+.liveMeta p {
+  margin: 3px 0 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.actionRail {
+  position: absolute;
+  right: 12px;
+  bottom: 158px;
+  display: grid;
+  gap: 10px;
+  z-index: 6;
+}
+
+.railButton {
+  width: 56px;
+  height: 56px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--text);
+  display: grid;
+  place-items: center;
+  gap: 2px;
+  font-size: 11px;
+}
+
+.chatOverlay {
+  position: absolute;
+  left: 12px;
+  right: 78px;
+  bottom: 14px;
+  z-index: 6;
+  display: grid;
+  gap: 8px;
+}
+
+.chatFeed {
+  max-height: 190px;
+  overflow-y: auto;
+  display: grid;
+  gap: 5px;
+  padding-right: 4px;
+}
+
+.chatFeed p {
+  margin: 0;
+  width: fit-content;
+  max-width: 100%;
+  border: 1px solid var(--line);
+  background: rgba(6, 17, 32, 0.65);
+  backdrop-filter: blur(6px);
+  border-radius: 10px;
+  font-size: 12px;
+  padding: 7px 9px;
+  color: #e4edf9;
+}
+
+.chatComposer {
+  display: flex;
+  gap: 8px;
+}
+
+.chatComposer input {
+  flex: 1;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+  padding: 10px 12px;
+  font-size: 13px;
+}
+
+.chatComposer button {
+  border-radius: 999px;
+  border: none;
+  background: #1f7a5a;
+  color: #fff;
+  font-weight: 700;
+  padding: 0 14px;
+}
+
+.giftTray {
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: 116px;
+  z-index: 6;
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+}
+
+.giftChip {
+  border: 1px solid rgba(255, 204, 0, 0.5);
+  background: rgba(135, 66, 13, 0.5);
+  color: #fff5d2;
+  border-radius: 999px;
+  font-size: 12px;
+  padding: 6px 10px;
+  white-space: nowrap;
+}
+
+.floatingHeart {
+  position: absolute;
+  bottom: 30%;
+  z-index: 8;
+  animation: rise 950ms ease-out forwards;
+  filter: drop-shadow(0 4px 8px rgba(0, 0, 0, 0.35));
+}
+
+.emptyState {
+  width: min(520px, 100vw);
+  min-height: 100vh;
+  margin: 0 auto;
+  display: grid;
+  place-items: center;
+  text-align: center;
+  padding: 24px;
+}
+
+.emptyState a {
+  display: inline-block;
+  margin-top: 14px;
+  border-radius: 999px;
+  text-decoration: none;
+  background: #1f7a5a;
+  color: #fff;
+  font-weight: 700;
+  padding: 10px 16px;
+}
+
+.notifyToast {
+  position: absolute;
+  top: 80px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 10;
+  font-size: 12px;
+  border-radius: 999px;
+  padding: 6px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.24);
+  background: rgba(31, 122, 90, 0.92);
+}
+
+@keyframes rise {
+  0% {
+    opacity: 0;
+    transform: translate3d(0, 14px, 0) scale(0.5);
+  }
+  20% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translate3d(-14px, -150px, 0) scale(1.2);
+  }
+}
+
+@media (max-width: 480px) {
+  .stage {
+    width: 100vw;
+  }
+
+  .actionRail {
+    right: 10px;
+  }
+
+  .chatOverlay {
+    right: 72px;
+  }
+}
