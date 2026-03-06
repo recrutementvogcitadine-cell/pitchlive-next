@@ -7,7 +7,7 @@ create table if not exists public.users (
   id uuid primary key references auth.users(id) on delete cascade,
   username text not null unique,
   avatar_url text,
-  role text not null default 'viewer',
+  role text not null default 'viewer' check (role in ('viewer', 'agent', 'admin', 'owner')),
   created_at timestamptz not null default now()
 );
 

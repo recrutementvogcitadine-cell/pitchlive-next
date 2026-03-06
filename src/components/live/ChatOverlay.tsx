@@ -13,6 +13,7 @@ export default function ChatOverlay({ liveSessionId, username }: Props) {
   const supabase = useMemo(() => createClient(), []);
   const [messages, setMessages] = useState<LiveMessage[]>([]);
   const [draft, setDraft] = useState("");
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     const load = async () => {
@@ -47,12 +48,29 @@ export default function ChatOverlay({ liveSessionId, username }: Props) {
   const send = async () => {
     const content = draft.trim();
     if (!content) return;
-    await supabase.from("messages").insert({
-      live_session_id: liveSessionId,
-      user_id: crypto.randomUUID(),
-      username,
-      content,
+    setError(null);
+
+    const response = await fetch("/api/chat/send", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        liveSessionId,
+        userId: crypto.randomUUID(),
+        username,
+        content,
+      }),
     });
+
+    if (!response.ok) {
+      const body = (await response.json().catch(() => ({}))) as { error?: string };
+      if (body.error === "blocked_by_moderation") {
+        setError("Message bloque par la moderation.");
+      } else {
+        setError("Envoi impossible.");
+      }
+      return;
+    }
+
     setDraft("");
   };
 
@@ -76,6 +94,7 @@ export default function ChatOverlay({ liveSessionId, username }: Props) {
           Envoyer
         </button>
       </div>
+      {error ? <p style={{ margin: 0, fontSize: 12, color: "#fca5a5" }}>{error}</p> : null}
     </div>
   );
 }
