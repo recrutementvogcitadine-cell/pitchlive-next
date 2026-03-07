@@ -97,6 +97,7 @@ export default function InscriptionVendeurPage() {
       };
 
       window.localStorage.setItem("pitchlive.seller.registration", JSON.stringify(sellerRegistration));
+      window.localStorage.setItem("pitchlive.access", JSON.stringify({ visitor: false, seller: false }));
 
       const summary = [
         "Nouvelle demande vendeur PITCH LIVE",

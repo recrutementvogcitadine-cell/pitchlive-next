@@ -331,14 +331,28 @@ export default function CreatorStudioPage() {
   useEffect(() => {
     if (typeof window === "undefined") return;
 
-    const rawRegistration = window.localStorage.getItem("pitchlive.seller.registration");
-    if (rawRegistration) {
+    const loadSellerRegistration = () => {
+      const rawRegistration = window.localStorage.getItem("pitchlive.seller.registration");
+      if (!rawRegistration) {
+        setSellerRegistration(null);
+        return;
+      }
       try {
         setSellerRegistration(JSON.parse(rawRegistration) as SellerRegistration);
       } catch {
         setSellerRegistration(null);
       }
-    }
+    };
+
+    loadSellerRegistration();
+
+    const poll = window.setInterval(loadSellerRegistration, 2500);
+    const onStorage = (event: StorageEvent) => {
+      if (event.key === "pitchlive.seller.registration") {
+        loadSellerRegistration();
+      }
+    };
+    window.addEventListener("storage", onStorage);
 
     const rawProducts = window.localStorage.getItem(STUDIO_PRODUCTS_KEY);
     if (rawProducts) {
@@ -348,6 +362,11 @@ export default function CreatorStudioPage() {
         setProducts([]);
       }
     }
+
+    return () => {
+      window.clearInterval(poll);
+      window.removeEventListener("storage", onStorage);
+    };
   }, []);
 
   useEffect(() => {
@@ -721,6 +740,11 @@ export default function CreatorStudioPage() {
   const startLive = async () => {
     if (!env.agoraAppId) {
       setError("NEXT_PUBLIC_AGORA_APP_ID manquant.");
+      return;
+    }
+
+    if (!sellerRegistration || sellerRegistration.status !== "validated") {
+      setError("Validation admin obligatoire: statut vendeur non valide.");
       return;
     }
 
@@ -1113,10 +1137,10 @@ export default function CreatorStudioPage() {
             <button
               type="button"
               onClick={() => void startLive()}
-              disabled={busy || isLive || (Boolean(sellerRegistration) && sellerRegistration?.status !== "validated")}
+              disabled={busy || isLive || !sellerRegistration || sellerRegistration.status !== "validated"}
               className="rounded-xl bg-orange-500 px-4 py-3 font-bold disabled:opacity-50"
             >
-              {busy && !isLive ? "Demarrage..." : sellerRegistration && sellerRegistration.status !== "validated" ? "Validation admin requise" : "Lancer le live"}
+              {busy && !isLive ? "Demarrage..." : !sellerRegistration || sellerRegistration.status !== "validated" ? "Validation admin requise" : "Lancer le live"}
             </button>
 
             <button

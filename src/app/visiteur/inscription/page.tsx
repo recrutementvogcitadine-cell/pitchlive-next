@@ -66,8 +66,13 @@ export default function InscriptionVisiteurPage() {
           firstName: prenom,
           lastName: nom,
           phone: telephone,
+          role: "visitor",
+          status: "validated",
+          validatedBy: "system",
         })
       );
+
+      window.localStorage.setItem("pitchlive.access", JSON.stringify({ visitor: true, seller: false }));
 
       window.location.href = "/mur";
     } catch {

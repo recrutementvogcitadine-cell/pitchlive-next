@@ -25,14 +25,56 @@ export default function VendeurStatutPage() {
   const [registration, setRegistration] = useState<SellerRegistration | null>(null);
 
   useEffect(() => {
-    const raw = window.localStorage.getItem("pitchlive.seller.registration");
-    if (!raw) return;
+    const loadRegistration = () => {
+      const raw = window.localStorage.getItem("pitchlive.seller.registration");
+      if (!raw) {
+        setRegistration(null);
+        return;
+      }
 
-    try {
-      setRegistration(JSON.parse(raw) as SellerRegistration);
-    } catch {
-      setRegistration(null);
-    }
+      try {
+        const parsed = JSON.parse(raw) as SellerRegistration;
+        setRegistration(parsed);
+
+        if (parsed.status === "validated") {
+          // Admin validation grants both seller and visitor access.
+          window.localStorage.setItem(
+            "pitchlive.access",
+            JSON.stringify({ visitor: true, seller: true })
+          );
+          window.localStorage.setItem(
+            "pitchlive.viewer",
+            JSON.stringify({
+              id: parsed.id,
+              username: `${parsed.firstName} ${parsed.lastName}`.trim(),
+              firstName: parsed.firstName,
+              lastName: parsed.lastName,
+              phone: parsed.phone,
+              role: "seller+visitor",
+              status: "validated",
+              validatedBy: "admin",
+            })
+          );
+        }
+      } catch {
+        setRegistration(null);
+      }
+    };
+
+    loadRegistration();
+    const poll = window.setInterval(loadRegistration, 2500);
+
+    const onStorage = (event: StorageEvent) => {
+      if (event.key === "pitchlive.seller.registration") {
+        loadRegistration();
+      }
+    };
+    window.addEventListener("storage", onStorage);
+
+    return () => {
+      window.clearInterval(poll);
+      window.removeEventListener("storage", onStorage);
+    };
   }, []);
 
   const statusClass = useMemo(() => {
@@ -41,13 +83,6 @@ export default function VendeurStatutPage() {
     if (registration.status === "refused") return "text-rose-300";
     return "text-amber-200";
   }, [registration]);
-
-  const simulateValidation = (status: SellerRegistration["status"]) => {
-    if (!registration) return;
-    const next = { ...registration, status };
-    setRegistration(next);
-    window.localStorage.setItem("pitchlive.seller.registration", JSON.stringify(next));
-  };
 
   if (!registration) {
     return (
@@ -85,26 +120,21 @@ export default function VendeurStatutPage() {
           </p>
 
           {registration.status === "validated" ? (
-            <Link href="/creator/studio" className="rounded-xl bg-emerald-600 px-4 py-3 font-bold text-center">
-              Acceder au Studio Vendeur
-            </Link>
+            <div className="grid gap-2 md:grid-cols-2">
+              <Link href="/creator/studio" className="rounded-xl bg-emerald-600 px-4 py-3 font-bold text-center">
+                Acceder au Studio Vendeur
+              </Link>
+              <Link href="/mur" className="rounded-xl bg-blue-600 px-4 py-3 font-bold text-center">
+                Acceder au Mur Visiteur
+              </Link>
+            </div>
           ) : (
-            <p className="text-sm text-slate-300">Attends la validation admin. Une fois valide, le studio sera accessible.</p>
+            <p className="text-sm text-slate-300">Attends la validation admin. Une fois valide, tu auras automatiquement les acces vendeur + visiteur.</p>
           )}
 
-          <div className="mt-2 rounded-xl border border-slate-700 bg-slate-800/55 p-3 grid gap-2">
-            <p className="text-xs text-slate-300">Simulation locale (admin) pour test:</p>
-            <div className="flex gap-2 flex-wrap">
-              <button type="button" onClick={() => simulateValidation("pending")} className="rounded-full bg-amber-700 px-3 py-2 text-xs font-semibold">
-                Mettre EN ATTENTE
-              </button>
-              <button type="button" onClick={() => simulateValidation("validated")} className="rounded-full bg-emerald-700 px-3 py-2 text-xs font-semibold">
-                Mettre VALIDE
-              </button>
-              <button type="button" onClick={() => simulateValidation("refused")} className="rounded-full bg-rose-700 px-3 py-2 text-xs font-semibold">
-                Mettre REFUSE
-              </button>
-            </div>
+          <div className="mt-2 rounded-xl border border-slate-700 bg-slate-800/55 p-3 grid gap-2 text-xs text-slate-300">
+            <p>Validation vendeur effectuee uniquement par admin.</p>
+            <p>Espace admin local: <Link href="/admin/vendeurs" className="underline">/admin/vendeurs</Link></p>
           </div>
         </article>
       </section>
