@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
+import { Ellipsis, MessageSquare, Power, Share2, Sparkles, Users } from "lucide-react";
 import JoinTicker from "@/components/live/JoinTicker";
 import { env } from "@/lib/env";
 import { createClient } from "@/lib/supabase/client";
@@ -278,8 +279,15 @@ export default function CreatorStudioPage() {
   const [profileInfo, setProfileInfo] = useState<string | null>(null);
   const [previewReady, setPreviewReady] = useState(false);
   const [previewOverlayOpen, setPreviewOverlayOpen] = useState(false);
+  const [goLiveCountdown, setGoLiveCountdown] = useState<number | null>(null);
   const [cameraEnabled, setCameraEnabled] = useState(true);
   const [microphoneEnabled, setMicrophoneEnabled] = useState(true);
+  const [likesCount, setLikesCount] = useState(0);
+  const [newFollowersDuringLive, setNewFollowersDuringLive] = useState(0);
+  const [joinNotice, setJoinNotice] = useState<string | null>(null);
+  const [followersNotice, setFollowersNotice] = useState<string | null>(null);
+  const [announceFollowersNotice, setAnnounceFollowersNotice] = useState(false);
+  const [showAdvancedMenu, setShowAdvancedMenu] = useState(false);
   const [joinTickerItems, setJoinTickerItems] = useState<JoinTickerItem[]>([]);
   const [participants, setParticipants] = useState<string[]>([]);
   const [sellerWhatsappNumber, setSellerWhatsappNumber] = useState("");
@@ -294,6 +302,10 @@ export default function CreatorStudioPage() {
   const camRef = useRef<ICameraVideoTrack | null>(null);
   const micRef = useRef<IMicrophoneAudioTrack | null>(null);
   const preferredCameraIdRef = useRef<string | null>(null);
+  const goLiveCountdownTimerRef = useRef<number | null>(null);
+  const joinNoticeTimeoutRef = useRef<number | null>(null);
+  const followersNoticeTimeoutRef = useRef<number | null>(null);
+  const announceNoticeTimeoutRef = useRef<number | null>(null);
 
   const creatorId = "main-creator";
 
@@ -316,12 +328,47 @@ export default function CreatorStudioPage() {
     window.open(url, "_blank", "noopener,noreferrer");
   };
 
+  const clearGoLiveCountdown = () => {
+    if (goLiveCountdownTimerRef.current) {
+      window.clearInterval(goLiveCountdownTimerRef.current);
+      goLiveCountdownTimerRef.current = null;
+    }
+    setGoLiveCountdown(null);
+  };
+
+  const beginGoLiveCountdown = () => {
+    if (busy || isLive || !previewReady) return;
+
+    clearGoLiveCountdown();
+    let remaining = 3;
+    setGoLiveCountdown(remaining);
+
+    goLiveCountdownTimerRef.current = window.setInterval(() => {
+      remaining -= 1;
+      if (remaining <= 0) {
+        clearGoLiveCountdown();
+        void startLive();
+        return;
+      }
+      setGoLiveCountdown(remaining);
+    }, 1000);
+  };
+
   const appendJoinTicker = (name: string, id: string) => {
     setJoinTickerItems((prev) => [{ id, name }, ...prev].slice(0, 8));
     setParticipants((prev) => {
       if (prev.includes(name)) return prev;
       return [name, ...prev].slice(0, 30);
     });
+
+    setJoinNotice(`${name} a rejoint`);
+    if (joinNoticeTimeoutRef.current) {
+      window.clearTimeout(joinNoticeTimeoutRef.current);
+    }
+    joinNoticeTimeoutRef.current = window.setTimeout(() => {
+      setJoinNotice(null);
+      joinNoticeTimeoutRef.current = null;
+    }, 2600);
   };
 
   const getPresenceName = (userId: string) => {
@@ -518,6 +565,18 @@ export default function CreatorStudioPage() {
 
   useEffect(() => {
     return () => {
+      clearGoLiveCountdown();
+
+      if (joinNoticeTimeoutRef.current) {
+        window.clearTimeout(joinNoticeTimeoutRef.current);
+      }
+      if (followersNoticeTimeoutRef.current) {
+        window.clearTimeout(followersNoticeTimeoutRef.current);
+      }
+      if (announceNoticeTimeoutRef.current) {
+        window.clearTimeout(announceNoticeTimeoutRef.current);
+      }
+
       void clientRef.current?.leave();
       camRef.current?.stop();
       micRef.current?.stop();
@@ -528,6 +587,52 @@ export default function CreatorStudioPage() {
       micRef.current = null;
     };
   }, []);
+
+  useEffect(() => {
+    if (!isLive || !sessionId) return;
+
+    const supabase = createClient();
+    let mounted = true;
+
+    const loadLiveStats = async () => {
+      const likes = await supabase.from("likes").select("id", { count: "exact", head: true }).eq("live_session_id", sessionId);
+      if (!mounted) return;
+      setLikesCount(likes.count ?? 0);
+    };
+
+    void loadLiveStats();
+
+    const channel = supabase
+      .channel(`studio-stats-${sessionId}`)
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "likes", filter: `live_session_id=eq.${sessionId}` },
+        () => {
+          setLikesCount((prev) => prev + 1);
+        }
+      )
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "followers", filter: `creator_id=eq.${creatorId}` },
+        () => {
+          setNewFollowersDuringLive((prev) => prev + 1);
+          setFollowersNotice("Nouveau follower recu pendant le live");
+          if (followersNoticeTimeoutRef.current) {
+            window.clearTimeout(followersNoticeTimeoutRef.current);
+          }
+          followersNoticeTimeoutRef.current = window.setTimeout(() => {
+            setFollowersNotice(null);
+            followersNoticeTimeoutRef.current = null;
+          }, 2800);
+        }
+      )
+      .subscribe();
+
+    return () => {
+      mounted = false;
+      void supabase.removeChannel(channel);
+    };
+  }, [isLive, sessionId, creatorId]);
 
   const saveCameraProfile = (cameraId?: string, cameraName?: string) => {
     const profile: CameraProfile = {
@@ -787,6 +892,7 @@ export default function CreatorStudioPage() {
 
     setBusy(true);
     setError(null);
+    clearGoLiveCountdown();
 
     try {
       if (!window.isSecureContext) {
@@ -833,7 +939,17 @@ export default function CreatorStudioPage() {
 
       setSessionId(body.sessionId);
       setIsLive(true);
-      setPreviewOverlayOpen(false);
+      setPreviewOverlayOpen(true);
+      setNewFollowersDuringLive(0);
+      setShowAdvancedMenu(false);
+      setAnnounceFollowersNotice(true);
+      if (announceNoticeTimeoutRef.current) {
+        window.clearTimeout(announceNoticeTimeoutRef.current);
+      }
+      announceNoticeTimeoutRef.current = window.setTimeout(() => {
+        setAnnounceFollowersNotice(false);
+        announceNoticeTimeoutRef.current = null;
+      }, 5200);
       saveCameraProfile(preferredCameraIdRef.current ?? undefined, cameraLabel);
 
       const supabase = createClient();
@@ -1008,6 +1124,7 @@ export default function CreatorStudioPage() {
   const stopLive = async () => {
     setBusy(true);
     setError(null);
+    clearGoLiveCountdown();
 
     try {
       if (sessionId) {
@@ -1046,6 +1163,12 @@ export default function CreatorStudioPage() {
       setPreviewReady(false);
       setCameraEnabled(true);
       setMicrophoneEnabled(true);
+      setLikesCount(0);
+      setNewFollowersDuringLive(0);
+      setJoinNotice(null);
+      setFollowersNotice(null);
+      setAnnounceFollowersNotice(false);
+      setShowAdvancedMenu(false);
     } catch (err) {
       setError(formatLiveError(err));
     } finally {
@@ -1109,6 +1232,7 @@ export default function CreatorStudioPage() {
     }
 
     setError(null);
+    clearGoLiveCountdown();
     setPreviewOverlayOpen(true);
 
     await new Promise((resolve) => window.setTimeout(resolve, 0));
@@ -1120,6 +1244,16 @@ export default function CreatorStudioPage() {
     }
 
     playTrackInPreview(camRef.current, "overlay");
+  };
+
+  const openSellerStore = () => {
+    if (typeof window === "undefined") return;
+    window.open(`/boutique/${encodeURIComponent(creatorId)}`, "_blank", "noopener,noreferrer");
+  };
+
+  const closePreviewOverlay = () => {
+    clearGoLiveCountdown();
+    setPreviewOverlayOpen(false);
   };
 
   useEffect(() => {
@@ -1429,36 +1563,160 @@ export default function CreatorStudioPage() {
             </div>
           ) : null}
 
-          <div className="pointer-events-none absolute inset-x-0 top-0 z-[96] p-4 md:p-6">
-            <div className="flex items-center justify-between text-white">
-              <div className="rounded-full bg-black/50 px-3 py-1 text-xs font-semibold tracking-wide">APERCU VENDEUR</div>
-              <div className="rounded-full bg-red-600 px-3 py-1 text-xs font-bold">LIVE (non diffuse)</div>
+          <div className="absolute inset-x-0 top-0 z-[96] p-4 md:p-6">
+            <div className="flex items-start justify-between gap-3 text-white">
+              <div className="flex items-center gap-2 rounded-2xl bg-black/45 px-2.5 py-2 backdrop-blur">
+                <div className="h-10 w-10 overflow-hidden rounded-full border border-white/30 bg-slate-900">
+                  <img src="/icons/preview-logo-v2.svg" alt="Profil vendeur" className="h-full w-full object-cover" />
+                </div>
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-bold leading-tight">{sellerRegistration?.storeName || "Boutique vendeur"}</p>
+                  <p className="text-xs text-white/85">Nouveaux abonnes live: +{newFollowersDuringLive}</p>
+                </div>
+                <div className="flex items-center gap-1 rounded-full bg-white/90 px-2 py-1 text-sm font-bold text-orange-500">
+                  <span>❤</span>
+                  <span>{likesCount}</span>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <div className="flex items-center gap-1 rounded-full bg-black/45 px-3 py-2 text-sm font-semibold">
+                  <Users size={14} />
+                  <span>{viewersCount}</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => void stopLive()}
+                  disabled={busy || !isLive}
+                  className="rounded-full bg-black/55 p-2 text-white disabled:opacity-50"
+                  aria-label="Arreter la diffusion"
+                >
+                  <Power size={18} />
+                </button>
+              </div>
             </div>
+
             <div className="mt-3 inline-flex rounded-full bg-black/45 px-3 py-1 text-xs text-white/90">
-              Interface spectateur simulee avant lancement
+              {isLive ? "LIVE en direct" : "Apercu avant diffusion"}
             </div>
+
+            {announceFollowersNotice ? (
+              <div className="mt-3 inline-flex rounded-xl bg-black/55 px-3 py-2 text-sm text-white/95">
+                Nous prevenons tes utilisateurs que tu passes en LIVE.
+              </div>
+            ) : null}
+
+            {followersNotice ? (
+              <div className="mt-2 inline-flex rounded-xl bg-emerald-500/85 px-3 py-2 text-sm font-semibold text-white">
+                {followersNotice}
+              </div>
+            ) : null}
+
+            {joinNotice ? (
+              <div className="mt-2 inline-flex rounded-xl bg-black/55 px-3 py-2 text-sm text-white/95">
+                {joinNotice}
+              </div>
+            ) : null}
           </div>
 
           <div className="absolute inset-x-0 bottom-0 z-[97] p-4 md:p-6 bg-gradient-to-t from-black/85 via-black/40 to-transparent">
             <div className="mx-auto max-w-xl grid gap-3">
+              {!isLive ? (
+                <button
+                  type="button"
+                  onClick={beginGoLiveCountdown}
+                  disabled={busy || !previewReady || goLiveCountdown !== null}
+                  className="w-full rounded-full bg-red-600 px-5 py-4 text-lg font-extrabold tracking-wide text-white disabled:opacity-50"
+                >
+                  {goLiveCountdown !== null ? `Demarrage dans ${goLiveCountdown}...` : busy ? "Demarrage..." : "Passer en live"}
+                </button>
+              ) : null}
+
+              {showAdvancedMenu ? (
+                <div className="grid gap-2 rounded-2xl border border-white/20 bg-black/55 p-3 backdrop-blur">
+                  <button
+                    type="button"
+                    onClick={() => void toggleCameraInput()}
+                    className="rounded-xl bg-white/10 px-3 py-2 text-left text-sm font-semibold text-white"
+                  >
+                    {cameraEnabled ? "Pause video" : "Reprendre video"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void toggleMicrophoneInput()}
+                    className="rounded-xl bg-white/10 px-3 py-2 text-left text-sm font-semibold text-white"
+                  >
+                    {microphoneEnabled ? "Couper micro" : "Activer micro"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={openSellerStore}
+                    className="rounded-xl bg-white/10 px-3 py-2 text-left text-sm font-semibold text-white"
+                  >
+                    Acces boutique vendeur
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowAdvancedMenu(false)}
+                    className="rounded-xl bg-white/10 px-3 py-2 text-left text-sm font-semibold text-white/90"
+                  >
+                    Fermer menu
+                  </button>
+                </div>
+              ) : null}
+
+              <div className="flex items-center justify-between rounded-2xl bg-black/45 px-3 py-2 backdrop-blur">
+                <button type="button" className="flex flex-col items-center gap-1 text-white/95">
+                  <Users size={21} />
+                  <span className="text-[11px]">Utilisateurs</span>
+                </button>
+                <button type="button" className="flex flex-col items-center gap-1 text-white/95">
+                  <MessageSquare size={21} />
+                  <span className="text-[11px]">Chat</span>
+                </button>
+                <button type="button" className="flex flex-col items-center gap-1 text-white/95">
+                  <Share2 size={21} />
+                  <span className="text-[11px]">Partager</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setBeautyPreview((prev) => !prev)}
+                  className="flex flex-col items-center gap-1 text-white/95"
+                >
+                  <Sparkles size={21} />
+                  <span className="text-[11px]">Effets</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowAdvancedMenu((prev) => !prev)}
+                  className="flex flex-col items-center gap-1 text-white/95"
+                >
+                  <Ellipsis size={21} />
+                  <span className="text-[11px]">Plus</span>
+                </button>
+              </div>
+
               <button
                 type="button"
-                onClick={() => void startLive()}
-                disabled={busy || isLive || !previewReady}
-                className="w-full rounded-full bg-red-600 px-5 py-4 text-lg font-extrabold tracking-wide text-white disabled:opacity-50"
-              >
-                {busy && !isLive ? "Demarrage..." : "Passer en live"}
-              </button>
-              <button
-                type="button"
-                onClick={() => setPreviewOverlayOpen(false)}
-                disabled={busy}
+                onClick={closePreviewOverlay}
+                disabled={busy || goLiveCountdown !== null}
                 className="w-full rounded-full border border-white/30 bg-black/45 px-5 py-3 text-sm font-semibold text-white disabled:opacity-50"
               >
-                Fermer la previsualisation
+                {isLive ? "Revenir au panneau studio" : "Fermer la previsualisation"}
               </button>
             </div>
           </div>
+
+          {goLiveCountdown !== null ? (
+            <div className="absolute inset-0 z-[98] grid place-items-center bg-black/45">
+              <div className="flex h-44 w-44 items-center justify-center rounded-full border-4 border-white/65 bg-black/55 text-7xl font-black text-white shadow-2xl">
+                {goLiveCountdown}
+              </div>
+              <p className="absolute mt-64 rounded-full bg-black/55 px-4 py-2 text-sm font-semibold text-white">
+                Preparation du direct...
+              </p>
+            </div>
+          ) : null}
         </div>
       ) : null}
     </main>
