@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
+import JoinTicker from "@/components/live/JoinTicker";
 import { env } from "@/lib/env";
 import { createClient } from "@/lib/supabase/client";
 
@@ -18,6 +19,11 @@ type CameraProfile = {
   beautyPreview: boolean;
   showCameraGuides: boolean;
   updatedAt: number;
+};
+
+type JoinTickerItem = {
+  id: string;
+  name: string;
 };
 
 function isMobileRuntime() {
@@ -247,6 +253,7 @@ export default function CreatorStudioPage() {
   const [previewReady, setPreviewReady] = useState(false);
   const [cameraEnabled, setCameraEnabled] = useState(true);
   const [microphoneEnabled, setMicrophoneEnabled] = useState(true);
+  const [joinTickerItems, setJoinTickerItems] = useState<JoinTickerItem[]>([]);
 
   const clientRef = useRef<IAgoraRTCClient | null>(null);
   const camRef = useRef<ICameraVideoTrack | null>(null);
@@ -254,6 +261,15 @@ export default function CreatorStudioPage() {
   const preferredCameraIdRef = useRef<string | null>(null);
 
   const creatorId = "main-creator";
+
+  const appendJoinTicker = (name: string, id: string) => {
+    setJoinTickerItems((prev) => [{ id, name }, ...prev].slice(0, 8));
+  };
+
+  const getPresenceName = (userId: string) => {
+    if (userId === creatorId) return "Vendeur";
+    return `visiteur_${userId.slice(0, 4)}`;
+  };
 
   useEffect(() => {
     const profile = readCameraProfile();
@@ -273,6 +289,28 @@ export default function CreatorStudioPage() {
     setProfileInfo("Profil camera charge");
     window.setTimeout(() => setProfileInfo(null), 1800);
   }, []);
+
+  useEffect(() => {
+    if (!isLive || !sessionId) return;
+
+    const supabase = createClient();
+    const channel = supabase
+      .channel(`live-presence-studio-${sessionId}`)
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "live_presence", filter: `live_session_id=eq.${sessionId}` },
+        (payload) => {
+          const row = payload.new as { user_id?: string; id?: string };
+          if (!row.user_id) return;
+          appendJoinTicker(getPresenceName(row.user_id), row.id ?? crypto.randomUUID());
+        }
+      )
+      .subscribe();
+
+    return () => {
+      void supabase.removeChannel(channel);
+    };
+  }, [isLive, sessionId]);
 
   useEffect(() => {
     return () => {
@@ -967,6 +1005,8 @@ export default function CreatorStudioPage() {
           <div className="text-sm text-slate-300">
             Etat: <strong>{isLive ? "En direct" : "Hors ligne"}</strong> • Preview: <strong>{previewReady ? "OK" : "NON"}</strong> • Video: <strong>{cameraEnabled ? "ON" : "OFF"}</strong> • Audio: <strong>{microphoneEnabled ? "ON" : "OFF"}</strong> • Spectateurs connectes: {viewersCount}
           </div>
+
+          {isLive ? <JoinTicker items={joinTickerItems} mode="inline" /> : null}
 
           {error ? <p className="text-sm text-red-300">Erreur: {error}</p> : null}
           {profileInfo ? <p className="text-sm text-violet-200">{profileInfo}</p> : null}

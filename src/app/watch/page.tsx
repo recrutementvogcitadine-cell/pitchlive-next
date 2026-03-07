@@ -5,6 +5,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import ActionRail from "@/components/live/ActionRail";
 import ChatOverlay from "@/components/live/ChatOverlay";
 import GiftTray from "@/components/live/GiftTray";
+import JoinTicker from "@/components/live/JoinTicker";
 import LiveHeader from "@/components/live/LiveHeader";
 import VideoStage from "@/components/live/VideoStage";
 import { useDoubleTap } from "@/hooks/useDoubleTap";
@@ -19,6 +20,11 @@ type FloatingHeart = {
   left: number;
   size: number;
   hue: number;
+};
+
+type JoinTickerItem = {
+  id: string;
+  name: string;
 };
 
 type IAgoraRTCClient = import("agora-rtc-sdk-ng").IAgoraRTCClient;
@@ -95,6 +101,9 @@ export default function WatchPage() {
   const [followersCount, setFollowersCount] = useState(0);
   const [notifyToast, setNotifyToast] = useState<string | null>(null);
   const [sellerWhatsapp, setSellerWhatsapp] = useState<string>("");
+  const [sellerDisplayName, setSellerDisplayName] = useState("Vendeur principal");
+  const [isFollowingSeller, setIsFollowingSeller] = useState(false);
+  const [joinTickerItems, setJoinTickerItems] = useState<JoinTickerItem[]>([]);
   const [audioUnlockRequired, setAudioUnlockRequired] = useState(false);
   const resubscribeTimerRef = useRef<number | null>(null);
   const supabaseRef = useRef<ReturnType<typeof createClient> | null>(null);
@@ -139,6 +148,23 @@ export default function WatchPage() {
       setNotifyToast("Son active");
       window.setTimeout(() => setNotifyToast(null), 1500);
     }
+  };
+
+  const closeLiveView = () => {
+    if (window.history.length > 1) {
+      window.history.back();
+      return;
+    }
+    window.location.href = "/";
+  };
+
+  const appendJoinTicker = (name: string, id: string) => {
+    setJoinTickerItems((prev) => [{ id, name }, ...prev].slice(0, 8));
+  };
+
+  const getPresenceName = (userId: string) => {
+    if (userId === viewerIdentity.id) return "Vous";
+    return `visiteur_${userId.slice(0, 4)}`;
   };
 
   const addHeart = () => {
@@ -217,6 +243,7 @@ export default function WatchPage() {
   const followCreator = async () => {
     if (!session) return;
     setFollowersCount((prev) => prev + 1);
+    setIsFollowingSeller(true);
     const supabase = getSupabase();
     await supabase.from("followers").upsert(
       {
@@ -270,12 +297,14 @@ export default function WatchPage() {
     const loadSellerProfile = async () => {
       try {
         const res = await fetch(`/api/seller/profile?sellerId=${encodeURIComponent(session.creator_id)}`, { cache: "no-store" });
-        const body = (await res.json()) as { profile?: { whatsappNumber?: string } | null };
+        const body = (await res.json()) as { profile?: { whatsappNumber?: string; storeName?: string } | null };
         if (!mounted) return;
         setSellerWhatsapp(body.profile?.whatsappNumber ?? "");
+        setSellerDisplayName(body.profile?.storeName?.trim() || "Vendeur principal");
       } catch {
         if (!mounted) return;
         setSellerWhatsapp("");
+        setSellerDisplayName("Vendeur principal");
       }
     };
 
@@ -305,6 +334,42 @@ export default function WatchPage() {
       void supabase.from("live_presence").delete().eq("id", presenceId);
     };
   }, [session, viewerIdentity.id]);
+
+  useEffect(() => {
+    if (!session?.id) return;
+
+    const supabase = getSupabase();
+    const channel = supabase
+      .channel(`live-presence-watch-${session.id}`)
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "live_presence", filter: `live_session_id=eq.${session.id}` },
+        (payload) => {
+          const row = payload.new as { user_id?: string; id?: string };
+          if (!row.user_id) return;
+          appendJoinTicker(getPresenceName(row.user_id), row.id ?? crypto.randomUUID());
+        }
+      )
+      .subscribe();
+
+    return () => {
+      void supabase.removeChannel(channel);
+    };
+  }, [session?.id, viewerIdentity.id]);
+
+  useEffect(() => {
+    if (!session?.creator_id) return;
+    const key = `pitchlive.following.${session.creator_id}`;
+    const existing = window.localStorage.getItem(key);
+    setIsFollowingSeller(existing === "1");
+  }, [session?.creator_id]);
+
+  useEffect(() => {
+    if (!session?.creator_id) return;
+    if (!isFollowingSeller) return;
+    const key = `pitchlive.following.${session.creator_id}`;
+    window.localStorage.setItem(key, "1");
+  }, [isFollowingSeller, session?.creator_id]);
 
   useEffect(() => {
     if (!session || !env.agoraAppId) return;
@@ -469,7 +534,14 @@ export default function WatchPage() {
             Activer le son
           </button>
         ) : null}
-        <LiveHeader title={session.title} viewers={session.viewers_count} likes={likesCount} />
+        <LiveHeader
+          sellerName={sellerDisplayName}
+          likes={likesCount}
+          isFollowing={isFollowingSeller}
+          onFollow={() => void followCreator()}
+          onClose={closeLiveView}
+        />
+        <JoinTicker items={joinTickerItems} />
         <GiftTray onSendGift={(gift) => void sendGift(gift)} />
         <ActionRail
           likes={likesCount}
