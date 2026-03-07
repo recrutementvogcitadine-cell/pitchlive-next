@@ -296,6 +296,19 @@ export default function CreatorStudioPage() {
 
   const creatorId = "main-creator";
 
+  const openAdminWhatsapp = () => {
+    const raw = env.sellerWhatsapp || "2250700000000";
+    const normalized = raw.replace(/[^\d+]/g, "");
+    if (!normalized || typeof window === "undefined") return;
+    const message = [
+      "Bonjour equipe admin PITCH LIVE,",
+      "mon inscription vendeur est en attente de validation.",
+      "Merci de verifier mon dossier.",
+    ].join("\n");
+    const url = `https://wa.me/${normalized}?text=${encodeURIComponent(message)}`;
+    window.open(url, "_blank", "noopener,noreferrer");
+  };
+
   const appendJoinTicker = (name: string, id: string) => {
     setJoinTickerItems((prev) => [{ id, name }, ...prev].slice(0, 8));
     setParticipants((prev) => {
@@ -350,7 +363,13 @@ export default function CreatorStudioPage() {
         return;
       }
       try {
-        setSellerRegistration(JSON.parse(rawRegistration) as SellerRegistration);
+        const parsed = JSON.parse(rawRegistration) as SellerRegistration;
+        setSellerRegistration(parsed);
+
+        if (parsed.status === "refused") {
+          window.localStorage.setItem("pitchlive.access", JSON.stringify({ visitor: false, seller: false }));
+          window.location.href = "/vendeur/inscription";
+        }
       } catch {
         setSellerRegistration(null);
       }
@@ -1245,6 +1264,21 @@ export default function CreatorStudioPage() {
           <div className="text-sm text-slate-300">
             Statut vendeur: <strong>{sellerRegistration?.status === "validated" ? "VALIDE" : sellerRegistration?.status === "refused" ? "REFUSE" : sellerRegistration?.status === "pending" ? "EN ATTENTE" : "NON DEFINI"}</strong>
           </div>
+
+          {sellerRegistration?.status === "pending" ? (
+            <div className="rounded-xl border border-amber-500/60 bg-amber-900/20 p-3 grid gap-2">
+              <p className="text-sm text-amber-100">
+                En attente de validation admin pour debloquer les fonctionnalites du studio live.
+              </p>
+              <button
+                type="button"
+                onClick={openAdminWhatsapp}
+                className="w-full sm:w-auto rounded-xl bg-emerald-600 px-4 py-2 font-semibold"
+              >
+                Contacter nous par WhatsApp
+              </button>
+            </div>
+          ) : null}
 
           {sellerRegistration && sellerRegistration.status !== "validated" ? (
             <p className="text-xs text-amber-200">

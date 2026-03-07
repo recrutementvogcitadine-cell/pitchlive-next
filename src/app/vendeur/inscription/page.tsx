@@ -98,7 +98,8 @@ export default function InscriptionVendeurPage() {
       };
 
       window.localStorage.setItem("pitchlive.seller.registration", JSON.stringify(sellerRegistration));
-      window.localStorage.setItem("pitchlive.access", JSON.stringify({ visitor: false, seller: false }));
+      // Pending sellers can access studio UI, but live actions remain locked until admin validation.
+      window.localStorage.setItem("pitchlive.access", JSON.stringify({ visitor: false, seller: true }));
 
       const summary = [
         "Nouvelle demande vendeur PITCH LIVE",
@@ -110,7 +111,7 @@ export default function InscriptionVendeurPage() {
       ].join("\n");
       sendToPitchLiveWhatsApp(summary);
 
-      window.location.href = "/vendeur/statut";
+      window.location.href = "/creator/studio";
     } catch {
       setError("Inscription vendeur impossible pour le moment.");
     } finally {

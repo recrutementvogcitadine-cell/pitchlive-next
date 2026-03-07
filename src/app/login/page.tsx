@@ -73,8 +73,15 @@ export default function LoginPage() {
           return;
         }
 
+        if (seller.status === "pending") {
+          window.localStorage.setItem("pitchlive.access", JSON.stringify({ visitor: false, seller: true }));
+          window.location.href = "/creator/studio";
+          return;
+        }
+
+        // Refused sellers must submit a new registration.
         window.localStorage.setItem("pitchlive.access", JSON.stringify({ visitor: false, seller: false }));
-        window.location.href = "/vendeur/statut";
+        window.location.href = "/vendeur/inscription";
         return;
       }
 

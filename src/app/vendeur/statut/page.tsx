@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
+import { env } from "@/lib/env";
 
 type SellerRegistration = {
   id: string;
@@ -23,6 +24,26 @@ function formatStatus(status: SellerRegistration["status"]) {
 
 export default function VendeurStatutPage() {
   const [registration, setRegistration] = useState<SellerRegistration | null>(null);
+
+  const contactAdminWhatsapp = () => {
+    const raw = env.sellerWhatsapp || "2250700000000";
+    const normalized = raw.replace(/[^\d+]/g, "");
+    if (!normalized || typeof window === "undefined") return;
+    const sellerName = registration ? `${registration.firstName} ${registration.lastName}`.trim() : "Vendeur";
+    const message = [
+      "Bonjour equipe admin PITCH LIVE,",
+      `je suis ${sellerName} et mon inscription vendeur est en attente.`,
+      "Merci de me confirmer la validation.",
+    ].join("\n");
+    window.open(`https://wa.me/${normalized}?text=${encodeURIComponent(message)}`, "_blank", "noopener,noreferrer");
+  };
+
+  const restartSellerRegistration = () => {
+    if (typeof window === "undefined") return;
+    window.localStorage.removeItem("pitchlive.seller.registration");
+    window.localStorage.setItem("pitchlive.access", JSON.stringify({ visitor: false, seller: false }));
+    window.location.href = "/vendeur/inscription";
+  };
 
   useEffect(() => {
     const loadRegistration = () => {
@@ -128,8 +149,28 @@ export default function VendeurStatutPage() {
                 Acceder au Mur Visiteur
               </Link>
             </div>
+          ) : registration.status === "refused" ? (
+            <div className="grid gap-2">
+              <p className="text-sm text-rose-200">Inscription refusee. Tu dois faire une nouvelle inscription vendeur.</p>
+              <button
+                type="button"
+                onClick={restartSellerRegistration}
+                className="rounded-xl bg-rose-600 px-4 py-3 font-bold"
+              >
+                Refaire mon inscription vendeur
+              </button>
+            </div>
           ) : (
-            <p className="text-sm text-slate-300">Attends la validation admin. Une fois valide, tu auras automatiquement les acces vendeur + visiteur.</p>
+            <div className="grid gap-2">
+              <p className="text-sm text-slate-300">Attends la validation admin. Une fois valide, tu auras automatiquement les acces vendeur + visiteur.</p>
+              <button
+                type="button"
+                onClick={contactAdminWhatsapp}
+                className="w-full sm:w-auto rounded-xl bg-emerald-600 px-4 py-3 font-bold"
+              >
+                Contacter nous par WhatsApp
+              </button>
+            </div>
           )}
 
           <div className="mt-2 rounded-xl border border-slate-700 bg-slate-800/55 p-3 grid gap-2 text-xs text-slate-300">
