@@ -66,6 +66,7 @@ export default function InscriptionVisiteurPage() {
           firstName: prenom,
           lastName: nom,
           phone: telephone,
+          password: motDePasse,
           role: "visitor",
           status: "validated",
           validatedBy: "system",

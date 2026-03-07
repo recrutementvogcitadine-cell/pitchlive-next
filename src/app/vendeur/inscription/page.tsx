@@ -89,6 +89,7 @@ export default function InscriptionVendeurPage() {
         lastName: nom,
         storeName: activite,
         phone: telephone,
+        password: motDePasse,
         plan: form.forfait,
         planStartAt: start.toISOString(),
         planEndAt: end.toISOString(),

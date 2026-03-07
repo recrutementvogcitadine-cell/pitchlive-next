@@ -116,6 +116,8 @@ export default function WatchPage() {
   const resubscribeTimerRef = useRef<number | null>(null);
   const supabaseRef = useRef<ReturnType<typeof createClient> | null>(null);
   const remoteAudioTracksRef = useRef<Map<string, import("agora-rtc-sdk-ng").IRemoteAudioTrack>>(new Map());
+  const tokenCacheRef = useRef<Map<string, string>>(new Map());
+  const profilePrefetchRef = useRef<Set<string>>(new Set());
 
   const getSupabase = () => {
     if (!supabaseRef.current) {
@@ -152,6 +154,53 @@ export default function WatchPage() {
     }
     setActiveIndex((prev) => clamp(prev, 0, sessions.length - 1));
   }, [sessions.length]);
+
+  useEffect(() => {
+    // Warm dynamic SDK chunk ahead of first swipe.
+    void import("agora-rtc-sdk-ng");
+  }, []);
+
+  useEffect(() => {
+    if (!sessions.length) return;
+
+    const prefetchTargets = [activeIndex - 1, activeIndex + 1, activeIndex + 2]
+      .filter((idx) => idx >= 0 && idx < sessions.length)
+      .map((idx) => sessions[idx]);
+
+    const run = async () => {
+      await Promise.all(
+        prefetchTargets.map(async (session) => {
+          const uid = toStableAgoraUid(`${viewerIdentity.id}:${session.id}`);
+          const tokenKey = `${session.id}:${uid}`;
+
+          if (!tokenCacheRef.current.has(tokenKey)) {
+            try {
+              const tokenRes = await fetch("/api/agora/token", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ channel: session.channel_name, role: "subscriber", uid }),
+              });
+              if (tokenRes.ok) {
+                const tokenBody = (await tokenRes.json()) as { token?: string };
+                if (tokenBody.token) {
+                  tokenCacheRef.current.set(tokenKey, tokenBody.token);
+                }
+              }
+            } catch {
+              // Best-effort prefetch only.
+            }
+          }
+
+          if (!profilePrefetchRef.current.has(session.creator_id)) {
+            profilePrefetchRef.current.add(session.creator_id);
+            void fetch(`/api/seller/profile?sellerId=${encodeURIComponent(session.creator_id)}`, { cache: "no-store" }).catch(() => undefined);
+          }
+        })
+      );
+    };
+
+    void run();
+  }, [activeIndex, sessions, viewerIdentity.id]);
 
   const onFeedScroll = () => {
     if (!feedRef.current || !sessions.length) return;
@@ -483,17 +532,25 @@ export default function WatchPage() {
         await ensureRemotePlayback();
       });
 
-      const tokenRes = await fetch("/api/agora/token", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ channel: activeSession.channel_name, role: "subscriber", uid: viewerAgoraUid }),
-      });
-      if (!tokenRes.ok) {
-        throw new Error("Impossible de recuperer le token Agora pour ce spectateur.");
+      const tokenKey = `${activeSession.id}:${viewerAgoraUid}`;
+      let token: string | null = tokenCacheRef.current.get(tokenKey) ?? null;
+      if (!token) {
+        const tokenRes = await fetch("/api/agora/token", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ channel: activeSession.channel_name, role: "subscriber", uid: viewerAgoraUid }),
+        });
+        if (!tokenRes.ok) {
+          throw new Error("Impossible de recuperer le token Agora pour ce spectateur.");
+        }
+        const tokenBody = (await tokenRes.json()) as { token?: string };
+        token = tokenBody.token ?? null;
+        if (token) {
+          tokenCacheRef.current.set(tokenKey, token);
+        }
       }
-      const tokenBody = (await tokenRes.json()) as { token?: string };
       await activeRtc.setClientRole("audience");
-      await activeRtc.join(env.agoraAppId, activeSession.channel_name, tokenBody.token ?? null, viewerAgoraUid);
+      await activeRtc.join(env.agoraAppId, activeSession.channel_name, token ?? null, viewerAgoraUid);
 
       await ensureRemotePlayback();
 
