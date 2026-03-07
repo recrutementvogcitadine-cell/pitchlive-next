@@ -151,11 +151,7 @@ export default function WatchPage() {
   };
 
   const closeLiveView = () => {
-    if (window.history.length > 1) {
-      window.history.back();
-      return;
-    }
-    window.location.href = "/";
+    window.location.href = "/mur";
   };
 
   const appendJoinTicker = (name: string, id: string) => {
