@@ -366,6 +366,82 @@ export default function CreatorStudioPage() {
     return picked.deviceId;
   };
 
+  const createCameraTrackForFacing = async (
+    AgoraRTC: typeof import("agora-rtc-sdk-ng").default,
+    facing: "environment" | "user"
+  ) => {
+    const cameras = (await AgoraRTC.getCameras()) as Array<{ deviceId: string; label: string }>;
+    const rearCameras = cameras.filter((camera) => isRearCameraLabel(camera.label));
+    const frontCameras = cameras.filter((camera) => !isRearCameraLabel(camera.label));
+
+    const pickedRear = rearCameras[0] ?? cameras[0];
+    const pickedFront = frontCameras[0] ?? cameras[0];
+
+    const attempts: Array<() => Promise<ICameraVideoTrack>> = [];
+
+    if (facing === "environment") {
+      if (pickedRear?.deviceId) {
+        attempts.push(() =>
+          AgoraRTC.createCameraVideoTrack({
+            cameraId: pickedRear.deviceId,
+            facingMode: "environment",
+            encoderConfig: getVerticalEncoderConfig(),
+            optimizationMode: "detail",
+          })
+        );
+      }
+
+      attempts.push(() =>
+        AgoraRTC.createCameraVideoTrack({
+          facingMode: "environment",
+          encoderConfig: getVerticalEncoderConfig(),
+          optimizationMode: "detail",
+        })
+      );
+    } else {
+      if (pickedFront?.deviceId) {
+        attempts.push(() =>
+          AgoraRTC.createCameraVideoTrack({
+            cameraId: pickedFront.deviceId,
+            facingMode: "user",
+            encoderConfig: getVerticalEncoderConfig(),
+            optimizationMode: "detail",
+          })
+        );
+      }
+
+      attempts.push(() =>
+        AgoraRTC.createCameraVideoTrack({
+          facingMode: "user",
+          encoderConfig: getVerticalEncoderConfig(),
+          optimizationMode: "detail",
+        })
+      );
+    }
+
+    // Last-resort default to avoid hard failure on devices with broken metadata.
+    attempts.push(() =>
+      AgoraRTC.createCameraVideoTrack({
+        encoderConfig: getVerticalEncoderConfig(),
+        optimizationMode: "detail",
+      })
+    );
+
+    let lastError: unknown = null;
+    for (const run of attempts) {
+      try {
+        const track = await run();
+        const label = facing === "user" ? pickedFront?.label || "Camera avant" : pickedRear?.label || "Camera arriere";
+        const cameraId = facing === "user" ? pickedFront?.deviceId ?? null : pickedRear?.deviceId ?? null;
+        return { track, label, cameraId };
+      } catch (error) {
+        lastError = error;
+      }
+    }
+
+    throw lastError ?? new Error("Impossible de creer la camera pour ce mode.");
+  };
+
   const initializePreview = async () => {
     if (!env.agoraAppId) {
       setError("NEXT_PUBLIC_AGORA_APP_ID manquant.");
@@ -387,9 +463,6 @@ export default function CreatorStudioPage() {
 
     try {
       const AgoraRTC = (await import("agora-rtc-sdk-ng")).default;
-      const preferredCameraId =
-        cameraFacing === "environment" ? await choosePreferredCameraId(AgoraRTC, cameraFacing) : undefined;
-
       const [microphoneTrack, cameraTrack] = await AgoraRTC.createMicrophoneAndCameraTracks(
         {
           AEC: true,
@@ -397,25 +470,29 @@ export default function CreatorStudioPage() {
           ANS: true,
         },
         {
-          cameraId: preferredCameraId,
+          cameraId: undefined,
           facingMode: cameraFacing,
           encoderConfig: getVerticalEncoderConfig(),
           optimizationMode: "detail",
         }
       );
 
-      await applyCameraTrackTuning(cameraTrack);
+      // Replace initial track with robust facing-aware selection when needed.
+      const preferredCamera = await createCameraTrackForFacing(AgoraRTC, cameraFacing);
+      cameraTrack.stop();
+      cameraTrack.close();
+      const selectedCameraTrack = preferredCamera.track;
 
-      cameraTrack.play("creator-preview", { fit: "contain", mirror: false });
+      await applyCameraTrackTuning(selectedCameraTrack);
+
+      selectedCameraTrack.play("creator-preview", { fit: "contain", mirror: false });
       enforcePreviewVideoStyle("creator-preview");
 
-      camRef.current = cameraTrack;
+      camRef.current = selectedCameraTrack;
       micRef.current = microphoneTrack;
       setPreviewReady(true);
-
-      if (preferredCameraId) {
-        preferredCameraIdRef.current = preferredCameraId;
-      }
+      setCameraLabel(preferredCamera.label);
+      preferredCameraIdRef.current = preferredCamera.cameraId;
 
       await cameraTrack.setEnabled(cameraEnabled);
       await microphoneTrack.setEnabled(microphoneEnabled);
@@ -635,23 +712,10 @@ export default function CreatorStudioPage() {
     setBusy(true);
     try {
       const AgoraRTC = (await import("agora-rtc-sdk-ng")).default;
-      const cameras = (await AgoraRTC.getCameras()) as Array<{ deviceId: string; label: string }>;
-      const rearCameras = cameras.filter((camera) => isRearCameraLabel(camera.label));
-      const pickedRear = rearCameras[0] ?? cameras[0];
-      if (nextFacing === "environment" && !pickedRear) {
-        setError("Aucune camera disponible.");
-        return;
-      }
-
       const activeClient = clientRef.current;
       const previousTrack = camRef.current;
-
-      const nextCameraTrack = await AgoraRTC.createCameraVideoTrack({
-        ...(nextFacing === "environment" && pickedRear ? { cameraId: pickedRear.deviceId } : {}),
-        facingMode: nextFacing,
-        encoderConfig: getVerticalEncoderConfig(),
-        optimizationMode: "detail",
-      });
+      const selectedCamera = await createCameraTrackForFacing(AgoraRTC, nextFacing);
+      const nextCameraTrack = selectedCamera.track;
 
       await applyCameraTrackTuning(nextCameraTrack);
       nextCameraTrack.play("creator-preview", { fit: "contain", mirror: false });
@@ -685,11 +749,9 @@ export default function CreatorStudioPage() {
       }
       camRef.current = nextCameraTrack;
 
-      const nextLabel =
-        nextFacing === "user" ? "Camera avant" : (pickedRear?.label || "Camera arriere");
-      setCameraLabel(nextLabel);
-      preferredCameraIdRef.current = nextFacing === "environment" ? (pickedRear?.deviceId ?? null) : null;
-      saveCameraProfile(nextFacing === "environment" ? pickedRear?.deviceId : undefined, nextLabel);
+      setCameraLabel(selectedCamera.label);
+      preferredCameraIdRef.current = selectedCamera.cameraId;
+      saveCameraProfile(selectedCamera.cameraId ?? undefined, selectedCamera.label);
       setError(null);
     } catch (err) {
       setError(formatLiveError(err));
