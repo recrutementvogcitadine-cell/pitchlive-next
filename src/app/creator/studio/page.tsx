@@ -370,7 +370,10 @@ export default function CreatorStudioPage() {
       mediaStream.getTracks().forEach((track) => track.stop());
 
       const AgoraRTC = (await import("agora-rtc-sdk-ng")).default;
-      const preferredCameraId = await choosePreferredCameraId(AgoraRTC, cameraFacing);
+      // On many phones, front/rear labels are unreliable. For front camera,
+      // rely on facingMode instead of forcing a potentially wrong deviceId.
+      const preferredCameraId =
+        cameraFacing === "environment" ? await choosePreferredCameraId(AgoraRTC, cameraFacing) : undefined;
       const response = await fetch("/api/live/start", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -546,10 +549,8 @@ export default function CreatorStudioPage() {
       const AgoraRTC = (await import("agora-rtc-sdk-ng")).default;
       const cameras = (await AgoraRTC.getCameras()) as Array<{ deviceId: string; label: string }>;
       const rearCameras = cameras.filter((camera) => isRearCameraLabel(camera.label));
-      const frontCameras = cameras.filter((camera) => !isRearCameraLabel(camera.label));
-      const candidates = nextFacing === "environment" ? (rearCameras.length ? rearCameras : cameras) : frontCameras.length ? frontCameras : cameras;
-      const picked = candidates[0] ?? cameras[0];
-      if (!picked) {
+      const pickedRear = rearCameras[0] ?? cameras[0];
+      if (nextFacing === "environment" && !pickedRear) {
         setError("Aucune camera disponible.");
         return;
       }
@@ -558,7 +559,7 @@ export default function CreatorStudioPage() {
       const previousTrack = camRef.current;
 
       const nextCameraTrack = await AgoraRTC.createCameraVideoTrack({
-        cameraId: picked.deviceId,
+        ...(nextFacing === "environment" && pickedRear ? { cameraId: pickedRear.deviceId } : {}),
         facingMode: nextFacing,
         encoderConfig: getVerticalEncoderConfig(),
         optimizationMode: "detail",
@@ -593,9 +594,11 @@ export default function CreatorStudioPage() {
       }
       camRef.current = nextCameraTrack;
 
-      setCameraLabel(picked.label || "Camera");
-      preferredCameraIdRef.current = picked.deviceId;
-      saveCameraProfile(picked.deviceId, picked.label || "Camera");
+      const nextLabel =
+        nextFacing === "user" ? "Camera avant" : (pickedRear?.label || "Camera arriere");
+      setCameraLabel(nextLabel);
+      preferredCameraIdRef.current = nextFacing === "environment" ? (pickedRear?.deviceId ?? null) : null;
+      saveCameraProfile(nextFacing === "environment" ? pickedRear?.deviceId : undefined, nextLabel);
       setError(null);
     } catch (err) {
       setError(formatLiveError(err));
@@ -659,7 +662,7 @@ export default function CreatorStudioPage() {
             <h2 className="text-sm md:text-base font-bold text-violet-100">Parametres camera</h2>
             <div className="text-xs md:text-sm text-violet-100/90 grid gap-1">
               <p>Camera active: <strong>{cameraLabel || "Auto"}</strong></p>
-              <p>Mode camera: <strong>ARRIERE VERROUILLEE</strong></p>
+              <p>Mode camera: <strong>{cameraFacing === "environment" ? "ARRIERE" : "AVANT"}</strong></p>
               <p>Format live: <strong>9:16 vertical</strong></p>
               <p>Miroir audience: <strong>OFF</strong> (orientation normale)</p>
               <p>Optimisation mobile: <strong>ON</strong> (cadrage stable, anti-zoom)</p>
