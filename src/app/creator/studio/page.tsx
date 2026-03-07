@@ -277,6 +277,7 @@ export default function CreatorStudioPage() {
   const [showCameraGuides, setShowCameraGuides] = useState(false);
   const [profileInfo, setProfileInfo] = useState<string | null>(null);
   const [previewReady, setPreviewReady] = useState(false);
+  const [previewOverlayOpen, setPreviewOverlayOpen] = useState(false);
   const [cameraEnabled, setCameraEnabled] = useState(true);
   const [microphoneEnabled, setMicrophoneEnabled] = useState(true);
   const [joinTickerItems, setJoinTickerItems] = useState<JoinTickerItem[]>([]);
@@ -295,6 +296,12 @@ export default function CreatorStudioPage() {
   const preferredCameraIdRef = useRef<string | null>(null);
 
   const creatorId = "main-creator";
+
+  const playTrackInPreview = (track: ICameraVideoTrack, target: "hidden" | "overlay") => {
+    const containerId = target === "overlay" ? "creator-preview-overlay" : "creator-preview";
+    track.play(containerId, { fit: "contain", mirror: false });
+    enforcePreviewVideoStyle(containerId);
+  };
 
   const openAdminWhatsapp = () => {
     const raw = env.sellerWhatsapp || "2250700000000";
@@ -720,8 +727,7 @@ export default function CreatorStudioPage() {
 
       await applyCameraTrackTuning(selectedCameraTrack);
 
-      selectedCameraTrack.play("creator-preview", { fit: "contain", mirror: false });
-      enforcePreviewVideoStyle("creator-preview");
+      playTrackInPreview(selectedCameraTrack, "hidden");
 
       camRef.current = selectedCameraTrack;
       micRef.current = microphoneTrack;
@@ -827,6 +833,7 @@ export default function CreatorStudioPage() {
 
       setSessionId(body.sessionId);
       setIsLive(true);
+      setPreviewOverlayOpen(false);
       saveCameraProfile(preferredCameraIdRef.current ?? undefined, cameraLabel);
 
       const supabase = createClient();
@@ -893,8 +900,7 @@ export default function CreatorStudioPage() {
       });
 
       await applyCameraTrackTuning(nextCameraTrack);
-      nextCameraTrack.play("creator-preview", { fit: "contain", mirror: false });
-      enforcePreviewVideoStyle("creator-preview");
+      playTrackInPreview(nextCameraTrack, previewOverlayOpen ? "overlay" : "hidden");
 
       let unpublishedOldTrack = false;
       try {
@@ -958,8 +964,7 @@ export default function CreatorStudioPage() {
       const nextCameraTrack = selectedCamera.track;
 
       await applyCameraTrackTuning(nextCameraTrack);
-      nextCameraTrack.play("creator-preview", { fit: "contain", mirror: false });
-      enforcePreviewVideoStyle("creator-preview");
+      playTrackInPreview(nextCameraTrack, previewOverlayOpen ? "overlay" : "hidden");
 
       let unpublishedOldTrack = false;
       try {
@@ -1035,6 +1040,7 @@ export default function CreatorStudioPage() {
       }
 
       setIsLive(false);
+      setPreviewOverlayOpen(false);
       setSessionId(null);
       setViewersCount(0);
       setPreviewReady(false);
@@ -1095,6 +1101,31 @@ export default function CreatorStudioPage() {
       setSavingWhatsapp(false);
     }
   };
+
+  const openLivePreview = async () => {
+    if (!sellerRegistration || sellerRegistration.status !== "validated") {
+      setError("Validation admin requise avant previsualisation.");
+      return;
+    }
+
+    setError(null);
+    setPreviewOverlayOpen(true);
+
+    await new Promise((resolve) => window.setTimeout(resolve, 0));
+    await initializePreview();
+
+    if (!camRef.current) {
+      setPreviewOverlayOpen(false);
+      return;
+    }
+
+    playTrackInPreview(camRef.current, "overlay");
+  };
+
+  useEffect(() => {
+    if (!previewOverlayOpen || !camRef.current) return;
+    playTrackInPreview(camRef.current, "overlay");
+  }, [previewOverlayOpen]);
 
   return (
     <main className="min-h-screen bg-slate-950 text-slate-50 px-4 py-6 md:p-8">
@@ -1158,20 +1189,11 @@ export default function CreatorStudioPage() {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             <button
               type="button"
-              onClick={() => void initializePreview()}
-              disabled={busy || previewReady}
-              className="rounded-xl border border-cyan-500/60 bg-cyan-900/20 px-4 py-3 font-semibold disabled:opacity-50"
-            >
-              {previewReady ? "Preview prete" : "Initialiser preview"}
-            </button>
-
-            <button
-              type="button"
-              onClick={() => void startLive()}
+              onClick={() => void openLivePreview()}
               disabled={busy || isLive || !sellerRegistration || sellerRegistration.status !== "validated"}
-              className="rounded-xl bg-orange-500 px-4 py-3 font-bold disabled:opacity-50"
+              className="rounded-xl bg-fuchsia-600 px-4 py-3 font-bold disabled:opacity-50"
             >
-              {busy && !isLive ? "Demarrage..." : !sellerRegistration || sellerRegistration.status !== "validated" ? "Validation admin requise" : "Lancer le live"}
+              {busy && !isLive ? "Ouverture preview..." : !sellerRegistration || sellerRegistration.status !== "validated" ? "Validation admin requise" : "Previsualiser le live"}
             </button>
 
             <button
@@ -1254,7 +1276,7 @@ export default function CreatorStudioPage() {
           </button>
 
           <div className="text-sm text-slate-300">
-            Etat: <strong>{isLive ? "En direct" : "Hors ligne"}</strong> • Preview: <strong>{previewReady ? "OK" : "NON"}</strong> • Video: <strong>{cameraEnabled ? "ON" : "OFF"}</strong> • Audio: <strong>{microphoneEnabled ? "ON" : "OFF"}</strong> • Spectateurs connectes: {viewersCount}
+            Etat: <strong>{isLive ? "En direct" : "Hors ligne"}</strong> • Preview: <strong>{previewReady ? "OK" : "NON"}</strong> • Ecran previsualisation: <strong>{previewOverlayOpen ? "OUVERT" : "FERME"}</strong> • Video: <strong>{cameraEnabled ? "ON" : "OFF"}</strong> • Audio: <strong>{microphoneEnabled ? "ON" : "OFF"}</strong> • Spectateurs connectes: {viewersCount}
           </div>
 
           <div className="text-sm text-slate-300">
@@ -1292,39 +1314,9 @@ export default function CreatorStudioPage() {
           {profileInfo ? <p className="text-sm text-violet-200">{profileInfo}</p> : null}
         </article>
 
-        <article className="rounded-2xl border border-slate-700 bg-slate-900/70 p-4 md:p-5">
-          <h2 className="font-semibold mb-2">Apercu camera vertical</h2>
-          <div className="relative w-full max-w-sm mx-auto aspect-[9/16] rounded-2xl overflow-hidden border border-slate-700 bg-slate-800">
-            <div
-              id="creator-preview"
-              className="absolute inset-0"
-              style={{
-                filter: beautyPreview ? "brightness(1.05) contrast(1.06) saturate(1.08)" : "none",
-              }}
-            />
-            {showCameraGuides ? (
-              <div className="pointer-events-none absolute inset-0 z-10">
-                <div className="absolute inset-0 border-2 border-sky-300/70 rounded-2xl" />
-
-                <div className="absolute left-1/2 top-0 bottom-0 w-px -translate-x-1/2 bg-sky-300/60" />
-
-                <div className="absolute left-0 right-0 top-1/3 h-px bg-sky-300/40" />
-                <div className="absolute left-0 right-0 top-2/3 h-px bg-sky-300/40" />
-
-                <div className="absolute left-1/2 top-[21%] w-[42%] max-w-[210px] aspect-square -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-amber-300/75" />
-                <div className="absolute left-1/2 top-[62%] w-[70%] max-w-[280px] h-[42%] -translate-x-1/2 -translate-y-1/2 rounded-[40%] border border-amber-300/45" />
-              </div>
-            ) : null}
-          </div>
-          <p className="text-xs text-slate-400 mt-2">
-            Rendu vertical optimise (9:16), anti-zoom agressif, switch camera et preset beaute legere.
-          </p>
-          {showCameraGuides ? (
-            <p className="text-xs text-sky-200/85 mt-1">
-              Guide actif: place les yeux autour de la ligne du tiers haut et garde le visage dans le cercle pour un rendu type TikTok/Instagram.
-            </p>
-          ) : null}
-        </article>
+        <div className="hidden">
+          <div id="creator-preview" />
+        </div>
 
         <article className="rounded-2xl border border-slate-700 bg-slate-900/70 p-4 md:p-5 grid gap-4">
           <h2 className="font-semibold">WhatsApp vendeur (bouton cote client)</h2>
@@ -1417,6 +1409,58 @@ export default function CreatorStudioPage() {
           </div>
         </article>
       </section>
+
+      {previewOverlayOpen ? (
+        <div className="fixed inset-0 z-[90] bg-black">
+          <div
+            id="creator-preview-overlay"
+            className="absolute inset-0"
+            style={{
+              filter: beautyPreview ? "brightness(1.05) contrast(1.06) saturate(1.08)" : "none",
+            }}
+          />
+
+          {showCameraGuides ? (
+            <div className="pointer-events-none absolute inset-0 z-[95]">
+              <div className="absolute inset-4 border-2 border-sky-300/70 rounded-3xl" />
+              <div className="absolute left-1/2 top-0 bottom-0 w-px -translate-x-1/2 bg-sky-300/60" />
+              <div className="absolute left-0 right-0 top-1/3 h-px bg-sky-300/40" />
+              <div className="absolute left-0 right-0 top-2/3 h-px bg-sky-300/40" />
+            </div>
+          ) : null}
+
+          <div className="pointer-events-none absolute inset-x-0 top-0 z-[96] p-4 md:p-6">
+            <div className="flex items-center justify-between text-white">
+              <div className="rounded-full bg-black/50 px-3 py-1 text-xs font-semibold tracking-wide">APERCU VENDEUR</div>
+              <div className="rounded-full bg-red-600 px-3 py-1 text-xs font-bold">LIVE (non diffuse)</div>
+            </div>
+            <div className="mt-3 inline-flex rounded-full bg-black/45 px-3 py-1 text-xs text-white/90">
+              Interface spectateur simulee avant lancement
+            </div>
+          </div>
+
+          <div className="absolute inset-x-0 bottom-0 z-[97] p-4 md:p-6 bg-gradient-to-t from-black/85 via-black/40 to-transparent">
+            <div className="mx-auto max-w-xl grid gap-3">
+              <button
+                type="button"
+                onClick={() => void startLive()}
+                disabled={busy || isLive || !previewReady}
+                className="w-full rounded-full bg-red-600 px-5 py-4 text-lg font-extrabold tracking-wide text-white disabled:opacity-50"
+              >
+                {busy && !isLive ? "Demarrage..." : "Passer en live"}
+              </button>
+              <button
+                type="button"
+                onClick={() => setPreviewOverlayOpen(false)}
+                disabled={busy}
+                className="w-full rounded-full border border-white/30 bg-black/45 px-5 py-3 text-sm font-semibold text-white disabled:opacity-50"
+              >
+                Fermer la previsualisation
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </main>
   );
 }
