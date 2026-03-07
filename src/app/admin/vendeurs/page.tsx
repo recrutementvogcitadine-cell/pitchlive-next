@@ -129,6 +129,12 @@ export default function AdminVendeursPage() {
         <p className="text-sm text-slate-300">Page admin locale pour valider/refuser les demandes vendeurs.</p>
 
         <div>
+          <a href="/dashboard" className="rounded-full bg-sky-700 px-3 py-2 text-sm font-semibold inline-flex">
+            Ouvrir dashboard realtime
+          </a>
+        </div>
+
+        <div>
           <button type="button" onClick={logoutAdmin} className="rounded-full bg-slate-700 px-3 py-2 text-sm font-semibold">
             Deconnexion admin
           </button>

@@ -1,103 +1,584 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import type { DashboardStats } from "@/lib/types";
 
+type ActivityEvent = {
+  id: string;
+  label: string;
+  at: string;
+  tone: "emerald" | "sky" | "amber" | "rose" | "slate";
+};
+
+type ThroughputPoint = {
+  key: string;
+  minuteLabel: string;
+  likes: number;
+  messages: number;
+  gifts: number;
+  followers: number;
+  presence: number;
+};
+
+type CountResult = {
+  count: number | null;
+};
+
+const ADMIN_AUTH_KEY = "pitchlive.admin.auth";
+const EMPTY_STATS: DashboardStats = {
+  activeLives: 0,
+  totalLives: 0,
+  totalMessages: 0,
+  totalLikes: 0,
+  totalGifts: 0,
+  totalFollowers: 0,
+  totalPresence: 0,
+  totalSellerProfiles: 0,
+  totalPushSubscriptions: 0,
+};
+
+function countOrZero(result: CountResult | null | undefined) {
+  return result?.count ?? 0;
+}
+
+function formatRelativeDate(iso: string) {
+  const target = new Date(iso).getTime();
+  const now = Date.now();
+  const deltaSec = Math.max(1, Math.floor((now - target) / 1000));
+
+  if (deltaSec < 60) return `${deltaSec}s`;
+  const deltaMin = Math.floor(deltaSec / 60);
+  if (deltaMin < 60) return `${deltaMin}m`;
+  const deltaH = Math.floor(deltaMin / 60);
+  if (deltaH < 24) return `${deltaH}h`;
+  const deltaD = Math.floor(deltaH / 24);
+  return `${deltaD}j`;
+}
+
+function toneClasses(tone: ActivityEvent["tone"]) {
+  if (tone === "emerald") return "border-emerald-500/45 bg-emerald-900/15 text-emerald-100";
+  if (tone === "sky") return "border-sky-500/45 bg-sky-900/15 text-sky-100";
+  if (tone === "amber") return "border-amber-500/45 bg-amber-900/15 text-amber-100";
+  if (tone === "rose") return "border-rose-500/45 bg-rose-900/15 text-rose-100";
+  return "border-slate-600 bg-slate-800/50 text-slate-100";
+}
+
+function makeLast15MinSlots() {
+  const now = new Date();
+  now.setSeconds(0, 0);
+
+  const slots: ThroughputPoint[] = [];
+  for (let i = 14; i >= 0; i -= 1) {
+    const minute = new Date(now.getTime() - i * 60_000);
+    const y = minute.getFullYear();
+    const m = `${minute.getMonth() + 1}`.padStart(2, "0");
+    const d = `${minute.getDate()}`.padStart(2, "0");
+    const hh = `${minute.getHours()}`.padStart(2, "0");
+    const mm = `${minute.getMinutes()}`.padStart(2, "0");
+    slots.push({
+      key: `${y}-${m}-${d}T${hh}:${mm}`,
+      minuteLabel: `${hh}:${mm}`,
+      likes: 0,
+      messages: 0,
+      gifts: 0,
+      followers: 0,
+      presence: 0,
+    });
+  }
+
+  return slots;
+}
+
+function minuteKeyFromIso(iso: string) {
+  const d = new Date(iso);
+  const y = d.getFullYear();
+  const m = `${d.getMonth() + 1}`.padStart(2, "0");
+  const day = `${d.getDate()}`.padStart(2, "0");
+  const hh = `${d.getHours()}`.padStart(2, "0");
+  const mm = `${d.getMinutes()}`.padStart(2, "0");
+  return `${y}-${m}-${day}T${hh}:${mm}`;
+}
+
 export default function DashboardPage() {
   const supabase = useMemo(() => createClient(), []);
-  const [stats, setStats] = useState<DashboardStats>({
-    activeLives: 0,
-    totalMessages: 0,
-    totalLikes: 0,
-    totalGifts: 0,
-    totalFollowers: 0,
-  });
+  const refreshTimerRef = useRef<number | null>(null);
+
+  const [isAuthed, setIsAuthed] = useState(false);
+  const [pin, setPin] = useState("");
+  const [authBusy, setAuthBusy] = useState(false);
+  const [authError, setAuthError] = useState<string | null>(null);
+
+  const [loading, setLoading] = useState(true);
+  const [realtimeConnected, setRealtimeConnected] = useState(false);
+  const [stats, setStats] = useState<DashboardStats>(EMPTY_STATS);
+  const [activityEvents, setActivityEvents] = useState<ActivityEvent[]>([]);
+  const [throughput, setThroughput] = useState<ThroughputPoint[]>(makeLast15MinSlots());
+  const [lastRefreshAt, setLastRefreshAt] = useState<string | null>(null);
 
   useEffect(() => {
+    const existing = window.sessionStorage.getItem(ADMIN_AUTH_KEY);
+    setIsAuthed(existing === "1");
+    setLoading(false);
+  }, []);
+
+  const verifyPin = async () => {
+    setAuthError(null);
+    if (!pin.trim()) {
+      setAuthError("Entre le code PIN admin.");
+      return;
+    }
+
+    setAuthBusy(true);
+    try {
+      const res = await fetch("/api/admin/verify-pin", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ pin: pin.trim() }),
+      });
+
+      if (!res.ok) {
+        const body = (await res.json().catch(() => ({}))) as { error?: string };
+        throw new Error(body.error || "PIN invalide");
+      }
+
+      window.sessionStorage.setItem(ADMIN_AUTH_KEY, "1");
+      setIsAuthed(true);
+      setPin("");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "PIN invalide";
+      setAuthError(message);
+    } finally {
+      setAuthBusy(false);
+    }
+  };
+
+  const logoutAdmin = () => {
+    window.sessionStorage.removeItem(ADMIN_AUTH_KEY);
+    setIsAuthed(false);
+    setRealtimeConnected(false);
+  };
+
+  useEffect(() => {
+    if (!isAuthed) return;
+
     let mounted = true;
 
-    const load = async () => {
-      const [lives, messages, likes, gifts, followers] = await Promise.all([
-        supabase.from("live_sessions").select("id", { count: "exact", head: true }).eq("status", "live"),
-        supabase.from("messages").select("id", { count: "exact", head: true }),
-        supabase.from("likes").select("id", { count: "exact", head: true }),
-        supabase.from("gifts").select("id", { count: "exact", head: true }),
-        supabase.from("followers").select("creator_id", { count: "exact", head: true }),
+    const safeCount = async (
+      table: string,
+      filter?: { col: string; value: string | boolean }
+    ) => {
+      try {
+        let query = supabase.from(table).select("id", { count: "exact", head: true });
+        if (filter) {
+          query = query.eq(filter.col, filter.value);
+        }
+        const { count } = await query;
+        return count ?? 0;
+      } catch {
+        return 0;
+      }
+    };
+
+    const loadDashboard = async () => {
+      const windowStartIso = new Date(Date.now() - 15 * 60_000).toISOString();
+
+      const [
+        activeLives,
+        totalLives,
+        totalMessages,
+        totalLikes,
+        totalGifts,
+        totalFollowers,
+        totalPresence,
+        totalSellerProfiles,
+        totalPushSubscriptions,
+      ] = await Promise.all([
+        safeCount("live_sessions", { col: "status", value: "live" }),
+        safeCount("live_sessions"),
+        safeCount("messages"),
+        safeCount("likes"),
+        safeCount("gifts"),
+        safeCount("followers"),
+        safeCount("live_presence"),
+        safeCount("seller_store_profiles"),
+        safeCount("push_subscriptions", { col: "enabled", value: true }),
+      ]);
+
+      const [sessionsRecent, messagesRecent, likesRecent, giftsRecent, followersRecent, presenceRecent] = await Promise.all([
+        supabase
+          .from("live_sessions")
+          .select("id,title,status,creator_id,started_at,ended_at")
+          .order("started_at", { ascending: false })
+          .limit(12),
+        supabase
+          .from("messages")
+          .select("id,username,content,created_at")
+          .order("created_at", { ascending: false })
+          .limit(12),
+        supabase
+          .from("likes")
+          .select("id,user_id,created_at")
+          .order("created_at", { ascending: false })
+          .limit(16),
+        supabase
+          .from("gifts")
+          .select("id,username,gift_type,created_at")
+          .order("created_at", { ascending: false })
+          .limit(12),
+        supabase
+          .from("followers")
+          .select("creator_id,follower_id,created_at")
+          .order("created_at", { ascending: false })
+          .limit(12),
+        supabase
+          .from("live_presence")
+          .select("id,user_id,joined_at")
+          .order("joined_at", { ascending: false })
+          .limit(12),
+      ]);
+
+      const [likesWindow, messagesWindow, giftsWindow, followersWindow, presenceWindow] = await Promise.all([
+        supabase.from("likes").select("created_at").gte("created_at", windowStartIso).limit(500),
+        supabase.from("messages").select("created_at").gte("created_at", windowStartIso).limit(500),
+        supabase.from("gifts").select("created_at").gte("created_at", windowStartIso).limit(500),
+        supabase.from("followers").select("created_at").gte("created_at", windowStartIso).limit(500),
+        supabase.from("live_presence").select("joined_at").gte("joined_at", windowStartIso).limit(500),
       ]);
 
       if (!mounted) return;
 
       setStats({
-        activeLives: lives.count ?? 0,
-        totalMessages: messages.count ?? 0,
-        totalLikes: likes.count ?? 0,
-        totalGifts: gifts.count ?? 0,
-        totalFollowers: followers.count ?? 0,
+        activeLives,
+        totalLives,
+        totalMessages,
+        totalLikes,
+        totalGifts,
+        totalFollowers,
+        totalPresence,
+        totalSellerProfiles,
+        totalPushSubscriptions,
       });
+
+      const events: ActivityEvent[] = [];
+
+      (sessionsRecent.data ?? []).forEach((row) => {
+        const title = String(row.title ?? "Live");
+        const status = String(row.status ?? "live");
+        const when = status === "ended" ? String(row.ended_at ?? row.started_at ?? "") : String(row.started_at ?? "");
+        if (!when) return;
+        events.push({
+          id: `live-${row.id}-${status}-${when}`,
+          label: status === "ended" ? `Live termine: ${title}` : `Live demarre: ${title}`,
+          at: when,
+          tone: status === "ended" ? "slate" : "emerald",
+        });
+      });
+
+      (messagesRecent.data ?? []).forEach((row) => {
+        if (!row.created_at) return;
+        const user = String(row.username ?? "visiteur");
+        const content = String(row.content ?? "").slice(0, 46);
+        events.push({
+          id: `msg-${row.id}`,
+          label: `Message ${user}: ${content}`,
+          at: String(row.created_at),
+          tone: "sky",
+        });
+      });
+
+      (likesRecent.data ?? []).forEach((row) => {
+        if (!row.created_at) return;
+        events.push({
+          id: `like-${row.id}`,
+          label: `Nouveau coeur de ${String(row.user_id ?? "visiteur")}`,
+          at: String(row.created_at),
+          tone: "rose",
+        });
+      });
+
+      (giftsRecent.data ?? []).forEach((row) => {
+        if (!row.created_at) return;
+        events.push({
+          id: `gift-${row.id}`,
+          label: `Cadeau ${String(row.gift_type ?? "gift")} de ${String(row.username ?? "visiteur")}`,
+          at: String(row.created_at),
+          tone: "amber",
+        });
+      });
+
+      (followersRecent.data ?? []).forEach((row) => {
+        if (!row.created_at) return;
+        events.push({
+          id: `follow-${String(row.creator_id)}-${String(row.follower_id)}-${String(row.created_at)}`,
+          label: `Nouveau follower ${String(row.follower_id ?? "-")} -> ${String(row.creator_id ?? "-")}`,
+          at: String(row.created_at),
+          tone: "emerald",
+        });
+      });
+
+      (presenceRecent.data ?? []).forEach((row) => {
+        if (!row.joined_at) return;
+        events.push({
+          id: `presence-${String(row.id)}`,
+          label: `Entree live de ${String(row.user_id ?? "visiteur")}`,
+          at: String(row.joined_at),
+          tone: "slate",
+        });
+      });
+
+      events.sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime());
+      setActivityEvents(events.slice(0, 40));
+
+      const slots = makeLast15MinSlots();
+      const slotMap = new Map(slots.map((slot) => [slot.key, slot]));
+
+      (likesWindow.data ?? []).forEach((row) => {
+        const key = minuteKeyFromIso(String(row.created_at));
+        const slot = slotMap.get(key);
+        if (slot) slot.likes += 1;
+      });
+      (messagesWindow.data ?? []).forEach((row) => {
+        const key = minuteKeyFromIso(String(row.created_at));
+        const slot = slotMap.get(key);
+        if (slot) slot.messages += 1;
+      });
+      (giftsWindow.data ?? []).forEach((row) => {
+        const key = minuteKeyFromIso(String(row.created_at));
+        const slot = slotMap.get(key);
+        if (slot) slot.gifts += 1;
+      });
+      (followersWindow.data ?? []).forEach((row) => {
+        const key = minuteKeyFromIso(String(row.created_at));
+        const slot = slotMap.get(key);
+        if (slot) slot.followers += 1;
+      });
+      (presenceWindow.data ?? []).forEach((row) => {
+        const key = minuteKeyFromIso(String(row.joined_at));
+        const slot = slotMap.get(key);
+        if (slot) slot.presence += 1;
+      });
+
+      setThroughput(slots);
+      setLastRefreshAt(new Date().toISOString());
     };
 
-    void load();
+    void loadDashboard();
+
+    const scheduleReload = () => {
+      if (refreshTimerRef.current) {
+        window.clearTimeout(refreshTimerRef.current);
+      }
+      refreshTimerRef.current = window.setTimeout(() => {
+        void loadDashboard();
+      }, 220);
+    };
 
     const channel = supabase
-      .channel("dashboard-realtime")
-      .on("postgres_changes", { event: "*", schema: "public", table: "live_sessions" }, () => void load())
-      .on("postgres_changes", { event: "*", schema: "public", table: "messages" }, () => void load())
-      .on("postgres_changes", { event: "*", schema: "public", table: "likes" }, () => void load())
-      .on("postgres_changes", { event: "*", schema: "public", table: "gifts" }, () => void load())
-      .on("postgres_changes", { event: "*", schema: "public", table: "followers" }, () => void load())
-      .subscribe();
+      .channel("admin-dashboard-realtime-v2")
+      .on("postgres_changes", { event: "*", schema: "public", table: "live_sessions" }, scheduleReload)
+      .on("postgres_changes", { event: "*", schema: "public", table: "messages" }, scheduleReload)
+      .on("postgres_changes", { event: "*", schema: "public", table: "likes" }, scheduleReload)
+      .on("postgres_changes", { event: "*", schema: "public", table: "gifts" }, scheduleReload)
+      .on("postgres_changes", { event: "*", schema: "public", table: "followers" }, scheduleReload)
+      .on("postgres_changes", { event: "*", schema: "public", table: "live_presence" }, scheduleReload)
+      .on("postgres_changes", { event: "*", schema: "public", table: "seller_store_profiles" }, scheduleReload)
+      .on("postgres_changes", { event: "*", schema: "public", table: "push_subscriptions" }, scheduleReload)
+      .subscribe((status) => {
+        setRealtimeConnected(status === "SUBSCRIBED");
+      });
 
     return () => {
       mounted = false;
+      if (refreshTimerRef.current) {
+        window.clearTimeout(refreshTimerRef.current);
+        refreshTimerRef.current = null;
+      }
       void supabase.removeChannel(channel);
+      setRealtimeConnected(false);
     };
-  }, [supabase]);
+  }, [isAuthed, supabase]);
+
+  const maxPerMinute = useMemo(() => {
+    const values = throughput.map((point) => point.likes + point.messages + point.gifts + point.followers + point.presence);
+    return Math.max(1, ...values);
+  }, [throughput]);
+
+  if (loading) {
+    return <main className="min-h-screen bg-slate-950 text-slate-50 grid place-items-center">Chargement dashboard...</main>;
+  }
+
+  if (!isAuthed) {
+    return (
+      <main className="min-h-screen bg-slate-950 text-slate-100 px-4 py-8 md:p-10">
+        <section className="mx-auto max-w-md grid gap-5">
+          <h1 className="text-3xl font-black">Dashboard Admin</h1>
+          <article className="rounded-2xl border border-slate-700 bg-slate-900/70 p-5 grid gap-3">
+            <p className="text-sm text-slate-300">Entrez le PIN admin pour ouvrir le tableau de bord temps reel.</p>
+            <input
+              type="password"
+              value={pin}
+              onChange={(event) => setPin(event.target.value)}
+              className="rounded-xl border border-slate-600 bg-slate-800 px-3 py-2 outline-none"
+              placeholder="PIN admin"
+            />
+            <button
+              type="button"
+              onClick={() => void verifyPin()}
+              disabled={authBusy}
+              className="rounded-xl bg-blue-600 px-4 py-3 font-bold disabled:opacity-50"
+            >
+              {authBusy ? "Verification..." : "Acceder"}
+            </button>
+            {authError ? <p className="text-sm text-rose-300">Erreur: {authError}</p> : null}
+          </article>
+        </section>
+      </main>
+    );
+  }
 
   return (
     <main className="min-h-screen bg-slate-950 text-slate-50 p-4 md:p-8">
-      <section className="mx-auto max-w-5xl grid gap-4">
-        <header className="flex justify-between items-center flex-wrap gap-3">
-          <h1 className="text-2xl md:text-3xl font-bold">Dashboard Administrateur</h1>
-          <div className="flex gap-2">
-            <Link href="/dashboard-login?redirect=/dashboard" className="rounded-full bg-slate-700 px-4 py-2 font-semibold">Login Dashboard</Link>
-            <Link href="/watch" className="rounded-full bg-emerald-600 px-4 py-2 font-semibold">Watch</Link>
-            <Link href="/creator/studio" className="rounded-full bg-orange-500 px-4 py-2 font-semibold">Studio vendeur</Link>
-            <Link href="/creator/settings" className="rounded-full bg-violet-600 px-4 py-2 font-semibold">Parametres vendeur</Link>
+      <section className="mx-auto max-w-7xl grid gap-4">
+        <header className="rounded-2xl border border-slate-700 bg-slate-900/70 p-4 md:p-5 grid gap-3">
+          <div className="flex justify-between items-center flex-wrap gap-3">
+            <h1 className="text-2xl md:text-3xl font-bold">Dashboard Administrateur Temps Reel</h1>
+            <div className="flex gap-2 flex-wrap">
+              <button
+                type="button"
+                onClick={() => window.location.reload()}
+                className="rounded-full bg-slate-700 px-4 py-2 font-semibold"
+              >
+                Rafraichir
+              </button>
+              <button type="button" onClick={logoutAdmin} className="rounded-full bg-rose-700 px-4 py-2 font-semibold">
+                Deconnexion admin
+              </button>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-3 text-xs text-slate-300">
+            <span
+              className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 ${
+                realtimeConnected ? "border-emerald-400/70 bg-emerald-900/25 text-emerald-200" : "border-amber-400/70 bg-amber-900/25 text-amber-200"
+              }`}
+            >
+              <span className={`h-2 w-2 rounded-full ${realtimeConnected ? "bg-emerald-300" : "bg-amber-300"}`} />
+              {realtimeConnected ? "Flux realtime connecte" : "Flux realtime en reconnexion"}
+            </span>
+            <span>Derniere sync: {lastRefreshAt ? new Date(lastRefreshAt).toLocaleTimeString("fr-FR") : "--:--:--"}</span>
           </div>
         </header>
 
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-          <StatCard label="Lives actifs" value={stats.activeLives} />
-          <StatCard label="Messages" value={stats.totalMessages} />
-          <StatCard label="Likes" value={stats.totalLikes} />
-          <StatCard label="Cadeaux" value={stats.totalGifts} />
-          <StatCard label="Abonnes vendeur" value={stats.totalFollowers} />
-        </div>
+        <section className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-3">
+          <StatCard label="Lives actifs" value={stats.activeLives} tone="emerald" />
+          <StatCard label="Lives total" value={stats.totalLives} tone="slate" />
+          <StatCard label="Messages" value={stats.totalMessages} tone="sky" />
+          <StatCard label="Coeurs" value={stats.totalLikes} tone="rose" />
+          <StatCard label="Cadeaux" value={stats.totalGifts} tone="amber" />
+          <StatCard label="Followers" value={stats.totalFollowers} tone="emerald" />
+          <StatCard label="Presences live" value={stats.totalPresence} tone="slate" />
+          <StatCard label="Boutiques" value={stats.totalSellerProfiles} tone="sky" />
+          <StatCard label="Push abonnes" value={stats.totalPushSubscriptions} tone="amber" />
+        </section>
 
-        <article className="rounded-2xl border border-slate-700 bg-slate-900/70 p-4 md:p-5 grid gap-2 text-sm text-slate-300">
-          <h2 className="font-semibold text-slate-100">Gestion contenu</h2>
-          <p>Ce dashboard centralise les interactions live en temps reel pour moderation et pilotage.</p>
-          <p>Moderation mots interdits activee via variable serveur `MODERATION_BANNED_WORDS`.</p>
-          <p>Ajoute ensuite tes workflows custom: blacklist users, alerts et scoring risque.</p>
-          <a
-            href="/api/dashboard/export"
-            className="inline-flex w-fit rounded-full bg-sky-600 px-4 py-2 text-white font-semibold"
-          >
+        <section className="grid lg:grid-cols-[1.1fr_1fr] gap-4">
+          <article className="rounded-2xl border border-slate-700 bg-slate-900/70 p-4 md:p-5 grid gap-4">
+            <h2 className="font-semibold text-slate-100">Analytique temps reel (15 dernieres minutes)</h2>
+            <div className="grid grid-cols-3 md:grid-cols-5 gap-2 text-xs">
+              <Legend label="Coeurs" color="bg-rose-400" />
+              <Legend label="Messages" color="bg-sky-400" />
+              <Legend label="Cadeaux" color="bg-amber-400" />
+              <Legend label="Followers" color="bg-emerald-400" />
+              <Legend label="Entrees live" color="bg-slate-300" />
+            </div>
+
+            <div className="h-56 rounded-xl border border-slate-700 bg-slate-950/60 p-3">
+              <div className="h-full w-full flex items-end gap-1 overflow-x-auto">
+                {throughput.map((point) => {
+                  const total = point.likes + point.messages + point.gifts + point.followers + point.presence;
+                  const normalized = (total / maxPerMinute) * 100;
+                  return (
+                    <div key={point.key} className="min-w-7 h-full flex flex-col justify-end items-center gap-1">
+                      <div className="w-6 h-[88%] rounded-md bg-slate-800 border border-slate-700 relative overflow-hidden">
+                        <StackSlice color="bg-rose-500" value={point.likes} total={maxPerMinute} />
+                        <StackSlice color="bg-sky-500" value={point.messages} total={maxPerMinute} />
+                        <StackSlice color="bg-amber-500" value={point.gifts} total={maxPerMinute} />
+                        <StackSlice color="bg-emerald-500" value={point.followers} total={maxPerMinute} />
+                        <StackSlice color="bg-slate-200" value={point.presence} total={maxPerMinute} />
+                        <div
+                          className="absolute left-0 right-0 bottom-0 bg-white/5"
+                          style={{ height: `${Math.max(2, normalized)}%` }}
+                        />
+                      </div>
+                      <span className="text-[10px] text-slate-400">{point.minuteLabel.slice(-2)}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </article>
+
+          <article className="rounded-2xl border border-slate-700 bg-slate-900/70 p-4 md:p-5 grid gap-3">
+            <h2 className="font-semibold text-slate-100">Activite en direct</h2>
+            <div className="max-h-72 overflow-y-auto grid gap-2 pr-1">
+              {activityEvents.length ? (
+                activityEvents.map((event) => (
+                  <div key={event.id} className={`rounded-xl border px-3 py-2 text-sm ${toneClasses(event.tone)}`}>
+                    <p className="leading-snug">{event.label}</p>
+                    <p className="text-[11px] opacity-80 mt-1">{formatRelativeDate(event.at)}</p>
+                  </div>
+                ))
+              ) : (
+                <p className="text-sm text-slate-400">Aucune activite recente.</p>
+              )}
+            </div>
+          </article>
+        </section>
+
+        <section className="rounded-2xl border border-slate-700 bg-slate-900/70 p-4 md:p-5 grid gap-3">
+          <h2 className="font-semibold text-slate-100">Controle complet de l'application</h2>
+          <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-2 text-sm">
+            <Link href="/watch" className="rounded-xl border border-slate-600 bg-slate-800 px-3 py-2">Live Watch</Link>
+            <Link href="/creator/studio" className="rounded-xl border border-slate-600 bg-slate-800 px-3 py-2">Studio vendeur</Link>
+            <Link href="/creator/settings" className="rounded-xl border border-slate-600 bg-slate-800 px-3 py-2">Settings vendeur</Link>
+            <Link href="/admin/vendeurs" className="rounded-xl border border-slate-600 bg-slate-800 px-3 py-2">Validation vendeurs</Link>
+            <Link href="/mur" className="rounded-xl border border-slate-600 bg-slate-800 px-3 py-2">Mur visiteur</Link>
+            <Link href="/boutique" className="rounded-xl border border-slate-600 bg-slate-800 px-3 py-2">Boutiques</Link>
+            <Link href="/vendeur/inscription" className="rounded-xl border border-slate-600 bg-slate-800 px-3 py-2">Inscription vendeur</Link>
+            <Link href="/visiteur/inscription" className="rounded-xl border border-slate-600 bg-slate-800 px-3 py-2">Inscription visiteur</Link>
+          </div>
+          <a href="/api/dashboard/export" className="inline-flex w-fit rounded-full bg-sky-600 px-4 py-2 text-white font-semibold">
             Export CSV analytics
           </a>
-        </article>
+        </section>
       </section>
     </main>
   );
 }
 
-function StatCard({ label, value }: { label: string; value: number }) {
+function StatCard({ label, value, tone }: { label: string; value: number; tone: "emerald" | "sky" | "amber" | "rose" | "slate" }) {
+  const toneClass = toneClasses(tone);
   return (
-    <article className="rounded-2xl border border-slate-700 bg-slate-900/70 p-4">
-      <p className="text-xs uppercase tracking-wide text-slate-400">{label}</p>
+    <article className={`rounded-2xl border p-4 ${toneClass}`}>
+      <p className="text-xs uppercase tracking-wide opacity-80">{label}</p>
       <p className="text-2xl font-extrabold mt-1">{value.toLocaleString("fr-FR")}</p>
     </article>
   );
+}
+
+function Legend({ label, color }: { label: string; color: string }) {
+  return (
+    <p className="inline-flex items-center gap-2 rounded-lg border border-slate-700 bg-slate-800 px-2 py-1 text-slate-200">
+      <span className={`inline-block h-2 w-2 rounded-full ${color}`} />
+      {label}
+    </p>
+  );
+}
+
+function StackSlice({ color, value, total }: { color: string; value: number; total: number }) {
+  if (!value) return null;
+  const height = (value / Math.max(1, total)) * 100;
+  return <div className={`absolute left-0 right-0 bottom-0 ${color}`} style={{ height: `${Math.max(2, height)}%` }} />;
 }

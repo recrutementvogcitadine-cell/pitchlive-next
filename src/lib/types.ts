@@ -37,8 +37,12 @@ export type LiveLike = {
 
 export type DashboardStats = {
   activeLives: number;
+  totalLives: number;
   totalMessages: number;
   totalLikes: number;
   totalGifts: number;
   totalFollowers: number;
+  totalPresence: number;
+  totalSellerProfiles: number;
+  totalPushSubscriptions: number;
 };
