@@ -7,6 +7,7 @@ import { getValidatedStores } from "@/lib/boutique-data";
 type ViewerProfile = {
   id: string;
   username: string;
+  profileImage?: string;
 };
 
 type SellerWallProfile = {
@@ -39,6 +40,7 @@ export default function MurPage() {
   const [viewer, setViewer] = useState<ViewerProfile>({ id: "guest", username: "guest" });
   const [followedSellers, setFollowedSellers] = useState<SellerWallProfile[]>([]);
   const [loading, setLoading] = useState(true);
+  const [savingPhoto, setSavingPhoto] = useState(false);
 
   const validatedStores = useMemo(() => getValidatedStores(), []);
 
@@ -134,13 +136,59 @@ export default function MurPage() {
     setFollowedSellers((prev) => prev.filter((seller) => seller.sellerId !== sellerId));
   };
 
+  const followSeller = (seller: { id: string; displayName: string; tagline: string; whatsappNumber: string }) => {
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem(`${FOLLOWING_KEY_PREFIX}${seller.id}`, "1");
+    }
+
+    setFollowedSellers((prev) => {
+      if (prev.some((item) => item.sellerId === seller.id)) return prev;
+      return [
+        {
+          sellerId: seller.id,
+          storeName: seller.displayName,
+          tagline: seller.tagline,
+          whatsappNumber: seller.whatsappNumber,
+        },
+        ...prev,
+      ];
+    });
+  };
+
+  const onProfilePhotoChange = async (event: any) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    if (!file.type.startsWith("image/")) return;
+
+    setSavingPhoto(true);
+    try {
+      const dataUrl = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result || ""));
+        reader.onerror = () => reject(new Error("read-failed"));
+        reader.readAsDataURL(file);
+      });
+
+      const nextViewer = { ...viewer, profileImage: dataUrl };
+      setViewer(nextViewer);
+      if (typeof window !== "undefined") {
+        window.localStorage.setItem("pitchlive.viewer", JSON.stringify(nextViewer));
+      }
+    } catch {
+      // keep previous photo silently on read failure.
+    } finally {
+      setSavingPhoto(false);
+    }
+  };
+
   return (
     <main className="min-h-screen bg-slate-950 text-slate-100 px-4 py-6 md:p-8">
       <section className="mx-auto max-w-5xl grid gap-6">
         <header className="rounded-2xl border border-slate-700 bg-slate-900/70 p-4 md:p-6 flex flex-wrap items-center justify-between gap-4">
           <div className="flex items-center gap-3 min-w-0">
             <img
-              src={`https://api.dicebear.com/7.x/thumbs/svg?seed=${encodeURIComponent(viewer.username || viewer.id)}`}
+              src={viewer.profileImage || `https://api.dicebear.com/7.x/thumbs/svg?seed=${encodeURIComponent(viewer.username || viewer.id)}`}
               alt="Photo profil visiteur"
               className="h-14 w-14 rounded-full border border-slate-500 bg-slate-800"
             />
@@ -157,6 +205,10 @@ export default function MurPage() {
             <Link href="/boutique" className="rounded-full bg-slate-700 px-4 py-2 font-semibold">
               Voir toutes les boutiques
             </Link>
+            <label className="rounded-full bg-indigo-700 px-4 py-2 font-semibold cursor-pointer">
+              {savingPhoto ? "Chargement..." : "Changer ma photo"}
+              <input type="file" accept="image/*" className="hidden" onChange={(event) => void onProfilePhotoChange(event)} />
+            </label>
           </div>
         </header>
 
@@ -215,9 +267,18 @@ export default function MurPage() {
                   <p className="font-semibold truncate">{store.displayName}</p>
                   <p className="text-sm text-slate-300 truncate">{store.tagline}</p>
                 </div>
-                <Link href={`/boutique/${encodeURIComponent(store.id)}`} className="rounded-full bg-slate-700 px-3 py-2 text-sm font-semibold whitespace-nowrap">
-                  Boutique
-                </Link>
+                <div className="flex gap-2 flex-wrap justify-end">
+                  <button
+                    type="button"
+                    onClick={() => followSeller(store)}
+                    className="rounded-full bg-pink-600 px-3 py-2 text-sm font-semibold whitespace-nowrap"
+                  >
+                    S'abonner
+                  </button>
+                  <Link href={`/boutique/${encodeURIComponent(store.id)}`} className="rounded-full bg-slate-700 px-3 py-2 text-sm font-semibold whitespace-nowrap">
+                    Boutique
+                  </Link>
+                </div>
               </div>
             ))}
           </div>

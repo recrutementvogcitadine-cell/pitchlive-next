@@ -26,6 +26,32 @@ type JoinTickerItem = {
   name: string;
 };
 
+type SellerRegistration = {
+  id: string;
+  firstName: string;
+  lastName: string;
+  storeName: string;
+  phone: string;
+  plan: "jour" | "semaine" | "mois";
+  planStartAt: string;
+  planEndAt: string;
+  status: "pending" | "validated" | "refused";
+};
+
+type StudioProduct = {
+  id: string;
+  name: string;
+  price: string;
+};
+
+type StudioChatMessage = {
+  id: string;
+  username: string;
+  content: string;
+};
+
+const STUDIO_PRODUCTS_KEY = "pitchlive.studio.products";
+
 function isMobileRuntime() {
   if (typeof navigator === "undefined") return false;
   return /android|iphone|ipad|ipod|mobile/i.test(navigator.userAgent);
@@ -254,6 +280,14 @@ export default function CreatorStudioPage() {
   const [cameraEnabled, setCameraEnabled] = useState(true);
   const [microphoneEnabled, setMicrophoneEnabled] = useState(true);
   const [joinTickerItems, setJoinTickerItems] = useState<JoinTickerItem[]>([]);
+  const [participants, setParticipants] = useState<string[]>([]);
+  const [sellerWhatsappNumber, setSellerWhatsappNumber] = useState("");
+  const [savingWhatsapp, setSavingWhatsapp] = useState(false);
+  const [sellerRegistration, setSellerRegistration] = useState<SellerRegistration | null>(null);
+  const [forfaitRemaining, setForfaitRemaining] = useState("--");
+  const [products, setProducts] = useState<StudioProduct[]>([]);
+  const [productDraft, setProductDraft] = useState({ name: "", price: "" });
+  const [chatMessages, setChatMessages] = useState<StudioChatMessage[]>([]);
 
   const clientRef = useRef<IAgoraRTCClient | null>(null);
   const camRef = useRef<ICameraVideoTrack | null>(null);
@@ -264,6 +298,10 @@ export default function CreatorStudioPage() {
 
   const appendJoinTicker = (name: string, id: string) => {
     setJoinTickerItems((prev) => [{ id, name }, ...prev].slice(0, 8));
+    setParticipants((prev) => {
+      if (prev.includes(name)) return prev;
+      return [name, ...prev].slice(0, 30);
+    });
   };
 
   const getPresenceName = (userId: string) => {
@@ -291,6 +329,77 @@ export default function CreatorStudioPage() {
   }, []);
 
   useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const rawRegistration = window.localStorage.getItem("pitchlive.seller.registration");
+    if (rawRegistration) {
+      try {
+        setSellerRegistration(JSON.parse(rawRegistration) as SellerRegistration);
+      } catch {
+        setSellerRegistration(null);
+      }
+    }
+
+    const rawProducts = window.localStorage.getItem(STUDIO_PRODUCTS_KEY);
+    if (rawProducts) {
+      try {
+        setProducts(JSON.parse(rawProducts) as StudioProduct[]);
+      } catch {
+        setProducts([]);
+      }
+    }
+  }, []);
+
+  useEffect(() => {
+    const resyncCountdown = () => {
+      if (!sellerRegistration?.planEndAt) {
+        setForfaitRemaining("--");
+        return;
+      }
+
+      const now = Date.now();
+      const endAt = new Date(sellerRegistration.planEndAt).getTime();
+      const diff = endAt - now;
+      if (diff <= 0) {
+        setForfaitRemaining("Expire");
+        return;
+      }
+
+      const totalMinutes = Math.floor(diff / 60000);
+      const days = Math.floor(totalMinutes / (60 * 24));
+      const hours = Math.floor((totalMinutes % (60 * 24)) / 60);
+      const minutes = totalMinutes % 60;
+      setForfaitRemaining(`${days}j ${hours}h ${minutes}m`);
+    };
+
+    resyncCountdown();
+    const timer = window.setInterval(resyncCountdown, 30000);
+    return () => window.clearInterval(timer);
+  }, [sellerRegistration]);
+
+  useEffect(() => {
+    let mounted = true;
+
+    const loadSellerProfile = async () => {
+      try {
+        const res = await fetch(`/api/seller/profile?sellerId=${encodeURIComponent(creatorId)}`, { cache: "no-store" });
+        const body = (await res.json()) as { profile?: { whatsappNumber?: string } | null };
+        if (!mounted) return;
+        setSellerWhatsappNumber(body.profile?.whatsappNumber ?? "");
+      } catch {
+        if (!mounted) return;
+        setSellerWhatsappNumber("");
+      }
+    };
+
+    void loadSellerProfile();
+
+    return () => {
+      mounted = false;
+    };
+  }, [creatorId]);
+
+  useEffect(() => {
     if (!isLive || !sessionId) return;
 
     const supabase = createClient();
@@ -308,6 +417,44 @@ export default function CreatorStudioPage() {
       .subscribe();
 
     return () => {
+      void supabase.removeChannel(channel);
+    };
+  }, [isLive, sessionId]);
+
+  useEffect(() => {
+    if (!isLive || !sessionId) return;
+
+    const supabase = createClient();
+    let mounted = true;
+
+    const loadMessages = async () => {
+      const { data } = await supabase
+        .from("messages")
+        .select("id,username,content")
+        .eq("live_session_id", sessionId)
+        .order("created_at", { ascending: false })
+        .limit(12);
+
+      if (!mounted) return;
+      setChatMessages(((data as StudioChatMessage[] | null) ?? []).reverse());
+    };
+
+    void loadMessages();
+
+    const channel = supabase
+      .channel(`studio-chat-${sessionId}`)
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "messages", filter: `live_session_id=eq.${sessionId}` },
+        (payload) => {
+          const row = payload.new as StudioChatMessage;
+          setChatMessages((prev) => [...prev.slice(-11), row]);
+        }
+      )
+      .subscribe();
+
+    return () => {
+      mounted = false;
       void supabase.removeChannel(channel);
     };
   }, [isLive, sessionId]);
@@ -845,6 +992,55 @@ export default function CreatorStudioPage() {
     }
   };
 
+  const addProduct = () => {
+    const name = productDraft.name.trim();
+    const price = productDraft.price.trim();
+    if (!name || !price) return;
+
+    const next = [{ id: crypto.randomUUID(), name, price }, ...products].slice(0, 20);
+    setProducts(next);
+    setProductDraft({ name: "", price: "" });
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem(STUDIO_PRODUCTS_KEY, JSON.stringify(next));
+    }
+  };
+
+  const removeProduct = (id: string) => {
+    const next = products.filter((product) => product.id !== id);
+    setProducts(next);
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem(STUDIO_PRODUCTS_KEY, JSON.stringify(next));
+    }
+  };
+
+  const saveSellerWhatsapp = async () => {
+    setSavingWhatsapp(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/seller/profile", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          sellerId: creatorId,
+          storeName: sellerRegistration?.storeName || "Vendeur principal",
+          tagline: "Boutique live en direct",
+          whatsappNumber: sellerWhatsappNumber,
+        }),
+      });
+
+      if (!res.ok) {
+        const body = (await res.json().catch(() => ({}))) as { error?: string };
+        throw new Error(body.error || "Impossible de sauvegarder le WhatsApp vendeur.");
+      }
+      setProfileInfo("WhatsApp vendeur sauvegarde");
+      window.setTimeout(() => setProfileInfo(null), 1800);
+    } catch (err) {
+      setError(formatLiveError(err));
+    } finally {
+      setSavingWhatsapp(false);
+    }
+  };
+
   return (
     <main className="min-h-screen bg-slate-950 text-slate-50 px-4 py-6 md:p-8">
       <section className="mx-auto max-w-4xl grid gap-4">
@@ -917,10 +1113,10 @@ export default function CreatorStudioPage() {
             <button
               type="button"
               onClick={() => void startLive()}
-              disabled={busy || isLive}
+              disabled={busy || isLive || (Boolean(sellerRegistration) && sellerRegistration?.status !== "validated")}
               className="rounded-xl bg-orange-500 px-4 py-3 font-bold disabled:opacity-50"
             >
-              {busy && !isLive ? "Demarrage..." : "Lancer le live"}
+              {busy && !isLive ? "Demarrage..." : sellerRegistration && sellerRegistration.status !== "validated" ? "Validation admin requise" : "Lancer le live"}
             </button>
 
             <button
@@ -1006,6 +1202,20 @@ export default function CreatorStudioPage() {
             Etat: <strong>{isLive ? "En direct" : "Hors ligne"}</strong> • Preview: <strong>{previewReady ? "OK" : "NON"}</strong> • Video: <strong>{cameraEnabled ? "ON" : "OFF"}</strong> • Audio: <strong>{microphoneEnabled ? "ON" : "OFF"}</strong> • Spectateurs connectes: {viewersCount}
           </div>
 
+          <div className="text-sm text-slate-300">
+            Forfait: <strong>{sellerRegistration?.plan?.toUpperCase() || "AUCUN"}</strong> • Debut: <strong>{sellerRegistration?.planStartAt ? new Date(sellerRegistration.planStartAt).toLocaleString("fr-FR") : "--"}</strong> • Fin: <strong>{sellerRegistration?.planEndAt ? new Date(sellerRegistration.planEndAt).toLocaleString("fr-FR") : "--"}</strong> • Compte a rebours: <strong>{forfaitRemaining}</strong>
+          </div>
+
+          <div className="text-sm text-slate-300">
+            Statut vendeur: <strong>{sellerRegistration?.status === "validated" ? "VALIDE" : sellerRegistration?.status === "refused" ? "REFUSE" : sellerRegistration?.status === "pending" ? "EN ATTENTE" : "NON DEFINI"}</strong>
+          </div>
+
+          {sellerRegistration && sellerRegistration.status !== "validated" ? (
+            <p className="text-xs text-amber-200">
+              Live bloque tant que le statut vendeur n'est pas VALIDE. Va sur <Link href="/vendeur/statut" className="underline">/vendeur/statut</Link>.
+            </p>
+          ) : null}
+
           {isLive ? <JoinTicker items={joinTickerItems} mode="inline" /> : null}
 
           {error ? <p className="text-sm text-red-300">Erreur: {error}</p> : null}
@@ -1044,6 +1254,97 @@ export default function CreatorStudioPage() {
               Guide actif: place les yeux autour de la ligne du tiers haut et garde le visage dans le cercle pour un rendu type TikTok/Instagram.
             </p>
           ) : null}
+        </article>
+
+        <article className="rounded-2xl border border-slate-700 bg-slate-900/70 p-4 md:p-5 grid gap-4">
+          <h2 className="font-semibold">WhatsApp vendeur (bouton cote client)</h2>
+          <label className="grid gap-1 text-sm">
+            Numero WhatsApp
+            <input
+              value={sellerWhatsappNumber}
+              onChange={(event) => setSellerWhatsappNumber(event.target.value)}
+              className="rounded-xl border border-slate-600 bg-slate-800 px-3 py-2 outline-none"
+              placeholder="2250701234567"
+            />
+          </label>
+          <button
+            type="button"
+            onClick={() => void saveSellerWhatsapp()}
+            disabled={savingWhatsapp}
+            className="rounded-xl bg-emerald-600 px-4 py-3 font-bold disabled:opacity-50"
+          >
+            {savingWhatsapp ? "Sauvegarde..." : "Sauvegarder WhatsApp vendeur"}
+          </button>
+        </article>
+
+        <article className="rounded-2xl border border-slate-700 bg-slate-900/70 p-4 md:p-5 grid gap-4">
+          <h2 className="font-semibold">Produits rapides studio</h2>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+            <input
+              value={productDraft.name}
+              onChange={(event) => setProductDraft((prev) => ({ ...prev, name: event.target.value }))}
+              className="rounded-xl border border-slate-600 bg-slate-800 px-3 py-2 outline-none"
+              placeholder="Nom produit"
+            />
+            <input
+              value={productDraft.price}
+              onChange={(event) => setProductDraft((prev) => ({ ...prev, price: event.target.value }))}
+              className="rounded-xl border border-slate-600 bg-slate-800 px-3 py-2 outline-none"
+              placeholder="Prix (XOF)"
+            />
+            <button type="button" onClick={addProduct} className="rounded-xl bg-blue-600 px-3 py-2 font-semibold">
+              Ajouter produit
+            </button>
+          </div>
+
+          <div className="grid gap-2">
+            {products.length ? (
+              products.map((product) => (
+                <div key={product.id} className="rounded-xl border border-slate-700 bg-slate-800/70 px-3 py-2 flex items-center justify-between gap-3">
+                  <p className="text-sm">
+                    <strong>{product.name}</strong> • {product.price}
+                  </p>
+                  <button type="button" onClick={() => removeProduct(product.id)} className="rounded-lg bg-rose-700 px-2 py-1 text-xs font-semibold">
+                    Supprimer
+                  </button>
+                </div>
+              ))
+            ) : (
+              <p className="text-sm text-slate-300">Aucun produit ajoute pour le moment.</p>
+            )}
+          </div>
+        </article>
+
+        <article className="rounded-2xl border border-slate-700 bg-slate-900/70 p-4 md:p-5 grid gap-3 md:grid-cols-2">
+          <div className="grid gap-2">
+            <h2 className="font-semibold">Visiteurs ayant participe</h2>
+            <div className="max-h-44 overflow-auto grid gap-2 pr-1">
+              {participants.length ? (
+                participants.map((name) => (
+                  <div key={name} className="rounded-lg border border-slate-700 bg-slate-800/70 px-3 py-2 text-sm">
+                    {name}
+                  </div>
+                ))
+              ) : (
+                <p className="text-sm text-slate-300">Aucun participant enregistre pour ce live.</p>
+              )}
+            </div>
+          </div>
+
+          <div className="grid gap-2">
+            <h2 className="font-semibold">Chat en direct (monitoring)</h2>
+            <div className="max-h-44 overflow-auto grid gap-2 pr-1">
+              {chatMessages.length ? (
+                chatMessages.map((message) => (
+                  <p key={message.id} className="rounded-lg border border-slate-700 bg-slate-800/70 px-3 py-2 text-sm">
+                    <strong>{message.username}</strong> {message.content}
+                  </p>
+                ))
+              ) : (
+                <p className="text-sm text-slate-300">Messages du live indisponibles pour le moment.</p>
+              )}
+            </div>
+          </div>
         </article>
       </section>
     </main>
