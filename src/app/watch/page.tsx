@@ -46,13 +46,13 @@ function enforcePlayerVideoStyle(containerId: string) {
     const video = container?.querySelector("video") as HTMLVideoElement | null;
     if (!video) return;
 
-    video.style.objectFit = "cover";
+    video.style.objectFit = "contain";
     video.style.objectPosition = "center center";
     video.style.transform = "scaleX(1)";
 
     if (!pendingMetadataHandler) {
       pendingMetadataHandler = () => {
-        video.style.objectFit = "cover";
+        video.style.objectFit = "contain";
         video.style.objectPosition = "center center";
         video.style.transform = "scaleX(1)";
       };
@@ -95,8 +95,10 @@ export default function WatchPage() {
   const [followersCount, setFollowersCount] = useState(0);
   const [notifyToast, setNotifyToast] = useState<string | null>(null);
   const [sellerWhatsapp, setSellerWhatsapp] = useState<string>("");
+  const [audioUnlockRequired, setAudioUnlockRequired] = useState(false);
   const resubscribeTimerRef = useRef<number | null>(null);
   const supabaseRef = useRef<ReturnType<typeof createClient> | null>(null);
+  const remoteAudioTracksRef = useRef<Map<string, import("agora-rtc-sdk-ng").IRemoteAudioTrack>>(new Map());
 
   const getSupabase = () => {
     if (!supabaseRef.current) {
@@ -121,6 +123,23 @@ export default function WatchPage() {
   const viewerAgoraUid = useMemo(() => {
     return toStableAgoraUid(viewerIdentity.id);
   }, [viewerIdentity.id]);
+
+  const playRemoteAudioTracks = () => {
+    let played = 0;
+    remoteAudioTracksRef.current.forEach((track) => {
+      try {
+        track.play();
+        played += 1;
+      } catch {
+        // Browser autoplay policies can still block until user interacts.
+      }
+    });
+    if (played > 0) {
+      setAudioUnlockRequired(false);
+      setNotifyToast("Son active");
+      window.setTimeout(() => setNotifyToast(null), 1500);
+    }
+  };
 
   const addHeart = () => {
     const heart: FloatingHeart = {
@@ -313,11 +332,18 @@ export default function WatchPage() {
             } catch {
               // Ignore and keep rendering the available stream.
             }
-            user.videoTrack?.play("agora-player", { fit: "cover", mirror: false });
+            user.videoTrack?.play("agora-player", { fit: "contain", mirror: false });
             enforcePlayerVideoStyle("agora-player");
           }
           if (mediaType === "audio") {
-            user.audioTrack?.play();
+            if (!user.audioTrack) return;
+            remoteAudioTracksRef.current.set(String(user.uid), user.audioTrack);
+            try {
+              user.audioTrack.play();
+              setAudioUnlockRequired(false);
+            } catch {
+              setAudioUnlockRequired(true);
+            }
           }
         } catch {
           // Keep watcher resilient: retry loop below handles temporary RTC gaps.
@@ -347,6 +373,10 @@ export default function WatchPage() {
           user.videoTrack?.stop();
           const holder = document.getElementById("agora-player");
           if (holder) holder.innerHTML = "";
+        }
+        if (mediaType === "audio") {
+          remoteAudioTracksRef.current.get(String(user.uid))?.stop();
+          remoteAudioTracksRef.current.delete(String(user.uid));
         }
       });
 
@@ -388,6 +418,8 @@ export default function WatchPage() {
         window.clearInterval(resubscribeTimerRef.current);
         resubscribeTimerRef.current = null;
       }
+      remoteAudioTracksRef.current.forEach((track) => track.stop());
+      remoteAudioTracksRef.current.clear();
       rtc?.removeAllListeners();
       void rtc?.leave();
       setClient(null);
@@ -432,6 +464,11 @@ export default function WatchPage() {
     <main className="livePage">
       <VideoStage floatingHearts={floatingHearts} onStageTap={onDoubleTap}>
         {notifyToast ? <div className="notifyToast">{notifyToast}</div> : null}
+        {audioUnlockRequired ? (
+          <button type="button" className="audioUnlockButton" onClick={playRemoteAudioTracks}>
+            Activer le son
+          </button>
+        ) : null}
         <LiveHeader title={session.title} viewers={session.viewers_count} likes={likesCount} />
         <GiftTray onSendGift={(gift) => void sendGift(gift)} />
         <ActionRail

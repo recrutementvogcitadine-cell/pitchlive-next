@@ -227,6 +227,21 @@
   background: rgba(31, 122, 90, 0.92);
 }
 
+.audioUnlockButton {
+  position: absolute;
+  top: 124px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 10;
+  border: 1px solid rgba(255, 255, 255, 0.34);
+  border-radius: 999px;
+  background: rgba(11, 27, 44, 0.92);
+  color: #f6fbff;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 8px 12px;
+}
+
 @keyframes rise {
   0% {
     opacity: 0;

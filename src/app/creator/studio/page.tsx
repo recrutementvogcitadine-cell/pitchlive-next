@@ -52,8 +52,8 @@ function getVerticalEncoderConfig() {
     return {
       width: 540,
       height: 960,
-      frameRate: 24,
-      bitrateMax: 1200,
+      frameRate: 30,
+      bitrateMax: 1400,
       bitrateMin: 450,
     };
   }
@@ -62,8 +62,8 @@ function getVerticalEncoderConfig() {
     return {
       width: 720,
       height: 1280,
-      frameRate: 24,
-      bitrateMax: 1800,
+      frameRate: 30,
+      bitrateMax: 2200,
       bitrateMin: 700,
     };
   }
@@ -71,20 +71,20 @@ function getVerticalEncoderConfig() {
   if (isMobileRuntime()) {
     // Mobile quality profile (TikTok-like) on decent connectivity.
     return {
-      width: 720,
-      height: 1280,
+      width: 1080,
+      height: 1920,
       frameRate: 30,
-      bitrateMax: 2500,
-      bitrateMin: 1000,
+      bitrateMax: 4200,
+      bitrateMin: 1400,
     };
   }
 
   return {
-    width: 720,
-    height: 1280,
+    width: 1080,
+    height: 1920,
     frameRate: 30,
-    bitrateMax: 2800,
-    bitrateMin: 1100,
+    bitrateMax: 4500,
+    bitrateMin: 1500,
   };
 }
 
@@ -192,13 +192,13 @@ function enforcePreviewVideoStyle(containerId: string) {
     const video = container?.querySelector("video") as HTMLVideoElement | null;
     if (!video) return;
 
-    video.style.objectFit = "cover";
+    video.style.objectFit = "contain";
     video.style.objectPosition = "center center";
     video.style.transform = "scaleX(1)";
 
     if (!pendingMetadataHandler) {
       pendingMetadataHandler = () => {
-        video.style.objectFit = "cover";
+        video.style.objectFit = "contain";
         video.style.objectPosition = "center center";
         video.style.transform = "scaleX(1)";
       };
@@ -244,6 +244,9 @@ export default function CreatorStudioPage() {
   const [beautyPreview, setBeautyPreview] = useState(true);
   const [showCameraGuides, setShowCameraGuides] = useState(false);
   const [profileInfo, setProfileInfo] = useState<string | null>(null);
+  const [previewReady, setPreviewReady] = useState(false);
+  const [cameraEnabled, setCameraEnabled] = useState(true);
+  const [microphoneEnabled, setMicrophoneEnabled] = useState(true);
 
   const clientRef = useRef<IAgoraRTCClient | null>(null);
   const camRef = useRef<ICameraVideoTrack | null>(null);
@@ -269,6 +272,19 @@ export default function CreatorStudioPage() {
     }
     setProfileInfo("Profil camera charge");
     window.setTimeout(() => setProfileInfo(null), 1800);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      void clientRef.current?.leave();
+      camRef.current?.stop();
+      micRef.current?.stop();
+      camRef.current?.close();
+      micRef.current?.close();
+      clientRef.current = null;
+      camRef.current = null;
+      micRef.current = null;
+    };
   }, []);
 
   const saveCameraProfile = (cameraId?: string, cameraName?: string) => {
@@ -350,6 +366,96 @@ export default function CreatorStudioPage() {
     return picked.deviceId;
   };
 
+  const initializePreview = async () => {
+    if (!env.agoraAppId) {
+      setError("NEXT_PUBLIC_AGORA_APP_ID manquant.");
+      return;
+    }
+
+    if (camRef.current && micRef.current) {
+      setPreviewReady(true);
+      return;
+    }
+
+    if (!window.isSecureContext) {
+      setError("La preview camera/micro exige HTTPS (ou localhost en local).");
+      return;
+    }
+
+    setBusy(true);
+    setError(null);
+
+    try {
+      const AgoraRTC = (await import("agora-rtc-sdk-ng")).default;
+      const preferredCameraId =
+        cameraFacing === "environment" ? await choosePreferredCameraId(AgoraRTC, cameraFacing) : undefined;
+
+      const [microphoneTrack, cameraTrack] = await AgoraRTC.createMicrophoneAndCameraTracks(
+        {
+          AEC: true,
+          AGC: true,
+          ANS: true,
+        },
+        {
+          cameraId: preferredCameraId,
+          facingMode: cameraFacing,
+          encoderConfig: getVerticalEncoderConfig(),
+          optimizationMode: "detail",
+        }
+      );
+
+      await applyCameraTrackTuning(cameraTrack);
+
+      cameraTrack.play("creator-preview", { fit: "contain", mirror: false });
+      enforcePreviewVideoStyle("creator-preview");
+
+      camRef.current = cameraTrack;
+      micRef.current = microphoneTrack;
+      setPreviewReady(true);
+
+      if (preferredCameraId) {
+        preferredCameraIdRef.current = preferredCameraId;
+      }
+
+      await cameraTrack.setEnabled(cameraEnabled);
+      await microphoneTrack.setEnabled(microphoneEnabled);
+    } catch (err) {
+      setError(formatLiveError(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const toggleCameraInput = async () => {
+    if (!camRef.current) {
+      await initializePreview();
+      if (!camRef.current) return;
+    }
+
+    const next = !cameraEnabled;
+    setCameraEnabled(next);
+    try {
+      await camRef.current.setEnabled(next);
+    } catch {
+      setError("Impossible de modifier la camera pour le moment.");
+    }
+  };
+
+  const toggleMicrophoneInput = async () => {
+    if (!micRef.current) {
+      await initializePreview();
+      if (!micRef.current) return;
+    }
+
+    const next = !microphoneEnabled;
+    setMicrophoneEnabled(next);
+    try {
+      await micRef.current.setEnabled(next);
+    } catch {
+      setError("Impossible de modifier le micro pour le moment.");
+    }
+  };
+
   const startLive = async () => {
     if (!env.agoraAppId) {
       setError("NEXT_PUBLIC_AGORA_APP_ID manquant.");
@@ -365,20 +471,22 @@ export default function CreatorStudioPage() {
         return;
       }
 
-      // Ask browser permissions first to fail fast with a clear message.
-      const mediaStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
-      mediaStream.getTracks().forEach((track) => track.stop());
+      await initializePreview();
+      if (!camRef.current || !micRef.current) {
+        setError("Preview camera/micro indisponible. Autorise camera + micro puis reessaie.");
+        return;
+      }
 
       const AgoraRTC = (await import("agora-rtc-sdk-ng")).default;
-      // On many phones, front/rear labels are unreliable. For front camera,
-      // rely on facingMode instead of forcing a potentially wrong deviceId.
-      const preferredCameraId =
-        cameraFacing === "environment" ? await choosePreferredCameraId(AgoraRTC, cameraFacing) : undefined;
       const response = await fetch("/api/live/start", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ title, creatorId }),
       });
+      if (!response.ok) {
+        const failedBody = (await response.json().catch(() => ({}))) as { error?: string };
+        throw new Error(failedBody.error ?? "Impossible de demarrer la session live.");
+      }
       const body = (await response.json()) as { sessionId: string; channelName: string; token: string };
 
       // Use H264 for better interoperability on mobile Safari and older devices.
@@ -397,37 +505,12 @@ export default function CreatorStudioPage() {
       await rtc.setClientRole("host");
       await rtc.join(env.agoraAppId, body.channelName, body.token, null);
 
-      const [microphoneTrack, cameraTrack] = await AgoraRTC.createMicrophoneAndCameraTracks(
-        {
-          AEC: true,
-          AGC: true,
-          ANS: true,
-        },
-        {
-          cameraId: preferredCameraId,
-          facingMode: cameraFacing,
-          encoderConfig: getVerticalEncoderConfig(),
-          optimizationMode: "detail",
-        }
-      );
-
-      await applyCameraTrackTuning(cameraTrack);
-
-      // Disable mirror so left/right movement matches what creators expect.
-      cameraTrack.play("creator-preview", { fit: "cover", mirror: false });
-      const cleanupPreviewStyle = enforcePreviewVideoStyle("creator-preview");
-
-      camRef.current = cameraTrack;
-      micRef.current = microphoneTrack;
-
-      await rtc.publish([microphoneTrack, cameraTrack]);
+      // Keep preview and broadcast identical (same tracks, same framing).
+      await rtc.publish([micRef.current, camRef.current]);
 
       setSessionId(body.sessionId);
       setIsLive(true);
-      if (preferredCameraId) {
-        preferredCameraIdRef.current = preferredCameraId;
-      }
-      saveCameraProfile(preferredCameraId, cameraLabel);
+      saveCameraProfile(preferredCameraIdRef.current ?? undefined, cameraLabel);
 
       const supabase = createClient();
       const interval = window.setInterval(async () => {
@@ -440,10 +523,7 @@ export default function CreatorStudioPage() {
 
       (window as unknown as { __viewerInterval?: number }).__viewerInterval = interval;
 
-      // Clear temporary style-enforcement loop after startup stabilization.
-      window.setTimeout(() => {
-        cleanupPreviewStyle?.();
-      }, 1400);
+      setPreviewReady(true);
     } catch (err) {
       setError(formatLiveError(err));
     } finally {
@@ -452,7 +532,10 @@ export default function CreatorStudioPage() {
   };
 
   const switchCamera = async () => {
-    if (!isLive || !camRef.current || !clientRef.current) return;
+    if (!camRef.current) {
+      await initializePreview();
+      if (!camRef.current) return;
+    }
 
     setBusy(true);
 
@@ -493,18 +576,20 @@ export default function CreatorStudioPage() {
       });
 
       await applyCameraTrackTuning(nextCameraTrack);
-      nextCameraTrack.play("creator-preview", { fit: "cover", mirror: false });
+      nextCameraTrack.play("creator-preview", { fit: "contain", mirror: false });
       enforcePreviewVideoStyle("creator-preview");
 
       let unpublishedOldTrack = false;
       try {
-        if (previousTrack) {
+        if (previousTrack && activeClient && isLive) {
           await activeClient.unpublish(previousTrack);
           unpublishedOldTrack = true;
         }
-        await activeClient.publish(nextCameraTrack);
+        if (activeClient && isLive) {
+          await activeClient.publish(nextCameraTrack);
+        }
       } catch (publishError) {
-        if (unpublishedOldTrack && previousTrack) {
+        if (unpublishedOldTrack && previousTrack && activeClient) {
           try {
             await activeClient.publish(previousTrack);
           } catch {
@@ -542,7 +627,10 @@ export default function CreatorStudioPage() {
       // ignore
     }
 
-    if (!isLive || !clientRef.current) return;
+    if (!camRef.current) {
+      await initializePreview();
+      if (!camRef.current) return;
+    }
 
     setBusy(true);
     try {
@@ -566,17 +654,20 @@ export default function CreatorStudioPage() {
       });
 
       await applyCameraTrackTuning(nextCameraTrack);
-      nextCameraTrack.play("creator-preview", { fit: "cover", mirror: false });
+      nextCameraTrack.play("creator-preview", { fit: "contain", mirror: false });
+      enforcePreviewVideoStyle("creator-preview");
 
       let unpublishedOldTrack = false;
       try {
-        if (previousTrack) {
+        if (previousTrack && activeClient && isLive) {
           await activeClient.unpublish(previousTrack);
           unpublishedOldTrack = true;
         }
-        await activeClient.publish(nextCameraTrack);
+        if (activeClient && isLive) {
+          await activeClient.publish(nextCameraTrack);
+        }
       } catch (err) {
-        if (unpublishedOldTrack && previousTrack) {
+        if (unpublishedOldTrack && previousTrack && activeClient) {
           try {
             await activeClient.publish(previousTrack);
           } catch {
@@ -621,10 +712,12 @@ export default function CreatorStudioPage() {
       }
 
       await clientRef.current?.leave();
-      camRef.current?.stop();
-      micRef.current?.stop();
-      camRef.current?.close();
-      micRef.current?.close();
+      clientRef.current = null;
+
+      // Keep preview available after stopping the live.
+      if (camRef.current) {
+        camRef.current.play("creator-preview", { fit: "contain", mirror: false });
+      }
 
       const holder = window as unknown as { __viewerInterval?: number };
       if (holder.__viewerInterval) {
@@ -635,6 +728,7 @@ export default function CreatorStudioPage() {
       setIsLive(false);
       setSessionId(null);
       setViewersCount(0);
+      setPreviewReady(Boolean(camRef.current && micRef.current));
     } catch (err) {
       setError(formatLiveError(err));
     } finally {
@@ -704,6 +798,15 @@ export default function CreatorStudioPage() {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             <button
               type="button"
+              onClick={() => void initializePreview()}
+              disabled={busy || previewReady}
+              className="rounded-xl border border-cyan-500/60 bg-cyan-900/20 px-4 py-3 font-semibold disabled:opacity-50"
+            >
+              {previewReady ? "Preview prete" : "Initialiser preview"}
+            </button>
+
+            <button
+              type="button"
               onClick={() => void startLive()}
               disabled={busy || isLive}
               className="rounded-xl bg-orange-500 px-4 py-3 font-bold disabled:opacity-50"
@@ -719,12 +822,30 @@ export default function CreatorStudioPage() {
             >
               {busy && isLive ? "Arret..." : "Arreter le live"}
             </button>
+
+            <button
+              type="button"
+              onClick={() => void toggleCameraInput()}
+              disabled={busy}
+              className="rounded-xl border border-emerald-500/60 bg-emerald-900/20 px-4 py-3 font-semibold disabled:opacity-50"
+            >
+              Camera: {cameraEnabled ? "ON" : "OFF"}
+            </button>
+
+            <button
+              type="button"
+              onClick={() => void toggleMicrophoneInput()}
+              disabled={busy}
+              className="rounded-xl border border-amber-500/60 bg-amber-900/20 px-4 py-3 font-semibold disabled:opacity-50"
+            >
+              Micro: {microphoneEnabled ? "ON" : "OFF"}
+            </button>
           </div>
 
           <button
             type="button"
             onClick={() => void switchCamera()}
-            disabled={!isLive || busy}
+              disabled={!previewReady || busy}
             className="rounded-xl border border-slate-500 bg-slate-800 px-4 py-3 font-semibold disabled:opacity-50"
           >
             Changer camera arriere ({cameraLabel || "Auto"})
@@ -773,7 +894,7 @@ export default function CreatorStudioPage() {
           </button>
 
           <div className="text-sm text-slate-300">
-            Etat: <strong>{isLive ? "En direct" : "Hors ligne"}</strong> • Spectateurs connectes: {viewersCount}
+            Etat: <strong>{isLive ? "En direct" : "Hors ligne"}</strong> • Preview: <strong>{previewReady ? "OK" : "NON"}</strong> • Video: <strong>{cameraEnabled ? "ON" : "OFF"}</strong> • Audio: <strong>{microphoneEnabled ? "ON" : "OFF"}</strong> • Spectateurs connectes: {viewersCount}
           </div>
 
           {error ? <p className="text-sm text-red-300">Erreur: {error}</p> : null}
