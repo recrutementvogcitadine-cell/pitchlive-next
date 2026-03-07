@@ -526,6 +526,76 @@ export default function CreatorStudioPage() {
     }
   };
 
+  const toggleFacing = async () => {
+    const nextFacing = cameraFacing === "environment" ? "user" : "environment";
+    setCameraFacing(nextFacing);
+    try {
+      saveCameraProfile();
+    } catch {
+      // ignore
+    }
+
+    if (!isLive || !clientRef.current) return;
+
+    setBusy(true);
+    try {
+      const AgoraRTC = (await import("agora-rtc-sdk-ng")).default;
+      const cameras = (await AgoraRTC.getCameras()) as Array<{ deviceId: string; label: string }>;
+      const rearCameras = cameras.filter((camera) => isRearCameraLabel(camera.label));
+      const frontCameras = cameras.filter((camera) => !isRearCameraLabel(camera.label));
+      const candidates = nextFacing === "environment" ? (rearCameras.length ? rearCameras : cameras) : frontCameras.length ? frontCameras : cameras;
+      const picked = candidates[0] ?? cameras[0];
+      if (!picked) {
+        setError("Aucune camera disponible.");
+        return;
+      }
+
+      const activeClient = clientRef.current;
+      const previousTrack = camRef.current;
+
+      const nextCameraTrack = await AgoraRTC.createCameraVideoTrack({
+        cameraId: picked.deviceId,
+        facingMode: nextFacing,
+        encoderConfig: getVerticalEncoderConfig(),
+        optimizationMode: "detail",
+      });
+
+      await applyCameraTrackTuning(nextCameraTrack);
+      nextCameraTrack.play("creator-preview", { fit: "cover", mirror: false });
+
+      let unpublishedOldTrack = false;
+      try {
+        await activeClient.unpublish(previousTrack);
+        unpublishedOldTrack = true;
+        await activeClient.publish(nextCameraTrack);
+      } catch (err) {
+        if (unpublishedOldTrack) {
+          try {
+            await activeClient.publish(previousTrack);
+          } catch {
+            // keep original error
+          }
+        }
+        nextCameraTrack.stop();
+        nextCameraTrack.close();
+        throw err;
+      }
+
+      previousTrack.stop();
+      previousTrack.close();
+      camRef.current = nextCameraTrack;
+
+      setCameraLabel(picked.label || "Camera");
+      preferredCameraIdRef.current = picked.deviceId;
+      saveCameraProfile(picked.deviceId, picked.label || "Camera");
+      setError(null);
+    } catch (err) {
+      setError(formatLiveError(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const stopLive = async () => {
     setBusy(true);
     setError(null);
@@ -602,8 +672,8 @@ export default function CreatorStudioPage() {
                 Reinitialiser profil
               </button>
               <button
-                type="button"
-                onClick={() => setCameraFacing((prev) => (prev === "environment" ? "user" : "environment"))}
+                    type="button"
+                    onClick={() => void toggleFacing()}
                 className="rounded-lg border border-sky-400/60 bg-sky-800/25 px-3 py-2 text-xs md:text-sm font-semibold"
               >
                 Caméra: {cameraFacing === "environment" ? "ARRIÈRE" : "AVANT"}
