@@ -126,6 +126,14 @@ export default function MurPage() {
   const followedIds = new Set(followedSellers.map((seller) => seller.sellerId));
   const otherStores = validatedStores.filter((store) => !followedIds.has(store.id));
 
+  const unfollowSeller = (sellerId: string) => {
+    if (typeof window !== "undefined") {
+      window.localStorage.removeItem(`${FOLLOWING_KEY_PREFIX}${sellerId}`);
+    }
+
+    setFollowedSellers((prev) => prev.filter((seller) => seller.sellerId !== sellerId));
+  };
+
   return (
     <main className="min-h-screen bg-slate-950 text-slate-100 px-4 py-6 md:p-8">
       <section className="mx-auto max-w-5xl grid gap-6">
@@ -185,6 +193,13 @@ export default function MurPage() {
                   <Link href="/watch" className="rounded-full bg-slate-700 px-3 py-2 text-sm font-semibold">
                     Voir les lives
                   </Link>
+                  <button
+                    type="button"
+                    onClick={() => unfollowSeller(seller.sellerId)}
+                    className="rounded-full bg-rose-700/80 px-3 py-2 text-sm font-semibold"
+                  >
+                    Se desabonner
+                  </button>
                 </div>
               </div>
             ))}
