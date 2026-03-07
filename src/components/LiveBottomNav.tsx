@@ -22,11 +22,19 @@ export default function LiveBottomNav() {
   const pathname = usePathname();
   const router = useRouter();
 
+  const hapticTap = (pattern: number | number[] = 12) => {
+    if (typeof navigator !== "undefined" && typeof navigator.vibrate === "function") {
+      navigator.vibrate(pattern);
+    }
+  };
+
   if (!pathname || !shouldShowOnPath(pathname)) {
     return null;
   }
 
   const onCamera = () => {
+    hapticTap([12, 30, 18]);
+
     if (typeof window === "undefined") {
       router.push("/vendeur/inscription");
       return;
@@ -53,14 +61,17 @@ export default function LiveBottomNav() {
   return (
     <>
       <div className="h-24 md:h-28" aria-hidden />
-      <nav className="fixed bottom-0 left-0 right-0 z-40 border-t border-slate-700 bg-slate-950/95 backdrop-blur">
-        <div className="mx-auto flex h-20 max-w-xl items-center justify-between px-7">
+      <nav className="fixed bottom-0 left-0 right-0 z-40 border-t border-slate-700 bg-slate-950/95 backdrop-blur navGlowBar">
+        <div className="mx-auto flex h-20 max-w-xl items-center justify-between px-7 relative">
           <button
             type="button"
-            onClick={() => router.push("/boutique")}
+            onClick={() => {
+              hapticTap(10);
+              router.push("/boutique");
+            }}
             className={`inline-flex h-11 w-11 items-center justify-center rounded-full border ${
               homeActive
-                ? "border-emerald-400 bg-emerald-900/35 text-emerald-200"
+                ? "border-emerald-300 bg-emerald-900/45 text-emerald-100 navActiveIcon"
                 : "border-slate-600 bg-slate-800 text-slate-100"
             }`}
             aria-label="Voir les boutiques"
@@ -68,21 +79,29 @@ export default function LiveBottomNav() {
             <House size={22} />
           </button>
 
-          <button
-            type="button"
-            onClick={onCamera}
-            className="-mt-8 inline-flex h-16 w-16 items-center justify-center rounded-full border border-red-300 bg-gradient-to-b from-red-500 to-red-700 text-white shadow-[0_14px_36px_rgba(239,68,68,0.5)]"
-            aria-label="Lancer un live"
-          >
-            <Camera size={28} />
-          </button>
+          <div className="relative -mt-8">
+            <span className="navLiveBadge" aria-hidden>
+              LIVE
+            </span>
+            <button
+              type="button"
+              onClick={onCamera}
+              className="inline-flex h-16 w-16 items-center justify-center rounded-full border border-red-200 bg-gradient-to-b from-red-500 to-red-700 text-white shadow-[0_14px_36px_rgba(239,68,68,0.5)] navCameraButton"
+              aria-label="Lancer un live"
+            >
+              <Camera size={28} />
+            </button>
+          </div>
 
           <button
             type="button"
-            onClick={() => router.push("/recherche")}
+            onClick={() => {
+              hapticTap(10);
+              router.push("/recherche");
+            }}
             className={`inline-flex h-11 w-11 items-center justify-center rounded-full border ${
               searchActive
-                ? "border-sky-400 bg-sky-900/35 text-sky-200"
+                ? "border-sky-300 bg-sky-900/45 text-sky-100 navActiveIcon"
                 : "border-slate-600 bg-slate-800 text-slate-100"
             }`}
             aria-label="Rechercher une boutique"

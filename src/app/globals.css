@@ -35,3 +35,51 @@ body {
   object-position: center center !important;
   transform: scaleX(1) !important;
 }
+
+.navGlowBar {
+  box-shadow: 0 -10px 40px rgba(0, 0, 0, 0.45);
+}
+
+.navCameraButton {
+  animation: cameraPulse 2.6s ease-in-out infinite;
+}
+
+.navLiveBadge {
+  position: absolute;
+  left: 50%;
+  top: -12px;
+  transform: translateX(-50%);
+  border: 1px solid rgba(252, 165, 165, 0.75);
+  border-radius: 999px;
+  padding: 2px 8px;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  color: #ffe6e6;
+  background: rgba(153, 27, 27, 0.9);
+  animation: liveBadgePulse 1.2s ease-in-out infinite;
+}
+
+.navActiveIcon {
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.06), 0 6px 16px rgba(15, 23, 42, 0.45);
+}
+
+@keyframes cameraPulse {
+  0%,
+  100% {
+    transform: translateY(0) scale(1);
+  }
+  50% {
+    transform: translateY(-2px) scale(1.04);
+  }
+}
+
+@keyframes liveBadgePulse {
+  0%,
+  100% {
+    opacity: 0.92;
+  }
+  50% {
+    opacity: 1;
+  }
+}
