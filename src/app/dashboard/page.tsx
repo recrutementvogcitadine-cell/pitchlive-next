@@ -31,6 +31,7 @@ type AlertItem = {
 
 const ADMIN_AUTH_KEY = "pitchlive.admin.auth";
 const DASHBOARD_SOUND_KEY = "pitchlive.admin.dashboard.sound";
+const DASHBOARD_SOUND_MODE_KEY = "pitchlive.admin.dashboard.sound.mode";
 const EMPTY_STATS: DashboardStats = {
   activeLives: 0,
   totalLives: 0,
@@ -144,6 +145,7 @@ export default function DashboardPage() {
   const [throughput, setThroughput] = useState<ThroughputPoint[]>(makeLast15MinSlots());
   const [lastRefreshAt, setLastRefreshAt] = useState<string | null>(null);
   const [soundEnabled, setSoundEnabled] = useState(true);
+  const [soundMode, setSoundMode] = useState<"all" | "night">("all");
   const [alerts, setAlerts] = useState<AlertItem[]>([]);
 
   useEffect(() => {
@@ -155,6 +157,11 @@ export default function DashboardPage() {
       setSoundEnabled(false);
     }
 
+    const savedMode = window.localStorage.getItem(DASHBOARD_SOUND_MODE_KEY);
+    if (savedMode === "night") {
+      setSoundMode("night");
+    }
+
     setLoading(false);
   }, []);
 
@@ -162,6 +169,11 @@ export default function DashboardPage() {
     if (typeof window === "undefined") return;
     window.localStorage.setItem(DASHBOARD_SOUND_KEY, soundEnabled ? "1" : "0");
   }, [soundEnabled]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    window.localStorage.setItem(DASHBOARD_SOUND_MODE_KEY, soundMode);
+  }, [soundMode]);
 
   const verifyPin = async () => {
     setAuthError(null);
@@ -217,6 +229,8 @@ export default function DashboardPage() {
 
   const playAlertSound = async (severity: AlertItem["severity"]) => {
     if (!soundEnabled) return;
+    if (soundMode === "night" && severity !== "critical") return;
+
     const ctx = await ensureAudioContext();
     if (!ctx) return;
 
@@ -250,6 +264,10 @@ export default function DashboardPage() {
     if (withSound) {
       void playAlertSound(severity).catch(() => undefined);
     }
+  };
+
+  const testSound = () => {
+    pushAlert("Test audio equipe", "critical", true);
   };
 
   useEffect(() => {
@@ -584,6 +602,22 @@ export default function DashboardPage() {
                 }`}
               >
                 {soundEnabled ? "Son alertes: ON" : "Son alertes: OFF"}
+              </button>
+              <button
+                type="button"
+                onClick={() => setSoundMode((prev) => (prev === "all" ? "night" : "all"))}
+                className={`rounded-full px-4 py-2 font-semibold ${
+                  soundMode === "night" ? "bg-indigo-700" : "bg-slate-700"
+                }`}
+              >
+                {soundMode === "night" ? "Mode nuit: critiques" : "Mode son: tous"}
+              </button>
+              <button
+                type="button"
+                onClick={testSound}
+                className="rounded-full bg-amber-700 px-4 py-2 font-semibold"
+              >
+                Tester son
               </button>
               <button
                 type="button"
