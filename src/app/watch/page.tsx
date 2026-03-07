@@ -537,6 +537,7 @@ export default function WatchPage() {
         <LiveHeader
           sellerName={sellerDisplayName}
           likes={likesCount}
+          viewers={session.viewers_count}
           isFollowing={isFollowingSeller}
           onFollow={() => void followCreator()}
           onClose={closeLiveView}

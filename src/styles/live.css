@@ -54,8 +54,9 @@
   right: 14px;
   display: flex;
   gap: 10px;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
+  flex-wrap: wrap;
   z-index: 5;
 }
 
@@ -70,12 +71,7 @@
   width: 42px;
   height: 42px;
   border-radius: 999px;
-  display: grid;
-  place-items: center;
-  background: linear-gradient(135deg, #9f7aea, #ed64a6);
-  color: #fff;
-  font-size: 13px;
-  font-weight: 800;
+  object-fit: cover;
   border: 1px solid rgba(255, 255, 255, 0.28);
 }
 
@@ -111,12 +107,27 @@
   font-weight: 800;
   font-size: 13px;
   padding: 9px 18px;
+  white-space: nowrap;
 }
 
-.liveTopRight {
+.topRightActions {
   display: flex;
   align-items: center;
   gap: 8px;
+}
+
+.liveStatusPill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border-radius: 999px;
+  background: rgba(6, 17, 32, 0.64);
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  padding: 7px 10px;
 }
 
 .liveDot {
@@ -125,6 +136,18 @@
   border-radius: 999px;
   background: var(--highlight);
   box-shadow: 0 0 0 4px rgba(255, 95, 31, 0.23);
+}
+
+.viewerPill {
+  border-radius: 999px;
+  background: rgba(6, 17, 32, 0.64);
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 7px 10px;
+  min-width: 48px;
+  text-align: center;
 }
 
 .closeLiveButton {
@@ -136,6 +159,23 @@
   color: #fff;
   font-size: 18px;
   line-height: 1;
+}
+
+.headerSubPills {
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  margin-top: 8px;
+}
+
+.subPill {
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: rgba(6, 17, 32, 0.54);
+  color: #f2f8ff;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 6px 10px;
 }
 
 .actionRail {
@@ -297,7 +337,7 @@
   position: absolute;
   left: 12px;
   right: 12px;
-  top: 72px;
+  top: 118px;
   z-index: 7;
   overflow: hidden;
   border-radius: 999px;
@@ -335,12 +375,8 @@
   width: 22px;
   height: 22px;
   border-radius: 999px;
-  display: grid;
-  place-items: center;
-  font-size: 10px;
-  font-weight: 800;
-  color: #fff;
-  background: linear-gradient(135deg, #22d3ee, #2563eb);
+  object-fit: cover;
+  border: 1px solid rgba(255, 255, 255, 0.32);
 }
 
 .joinTickerName {
@@ -388,5 +424,21 @@
 
   .chatOverlay {
     right: 72px;
+  }
+
+  .sellerMeta h1 {
+    max-width: 94px;
+    font-size: 14px;
+  }
+
+  .followTopButton {
+    padding: 8px 13px;
+    font-size: 12px;
+  }
+
+  .liveStatusPill,
+  .viewerPill {
+    padding: 6px 8px;
+    font-size: 11px;
   }
 }
