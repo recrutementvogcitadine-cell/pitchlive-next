@@ -25,7 +25,7 @@ export const metadata: Metadata = {
     title: "PITCH LIVE",
   },
   icons: {
-    apple: "/icons/apple-touch-icon.svg",
+    apple: "/icons/apple-touch-icon.png",
   },
 };
 

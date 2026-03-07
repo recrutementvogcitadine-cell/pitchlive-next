@@ -51,6 +51,7 @@ export default function InstallAppButton() {
       type="button"
       onClick={() => void onInstall()}
       className="fixed right-4 top-4 z-50 rounded-full border border-slate-500 bg-slate-900/95 px-4 py-2 text-xs font-semibold text-slate-100 shadow-lg"
+      style={{ top: "calc(env(safe-area-inset-top) + 0.75rem)" }}
     >
       Installer l'app
     </button>
