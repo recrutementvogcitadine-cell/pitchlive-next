@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Manrope, Sora } from "next/font/google";
+import LiveBottomNav from "@/components/LiveBottomNav";
 import "./globals.css";
 
 const sora = Sora({
@@ -26,6 +27,7 @@ export default function RootLayout({
     <html lang="en">
       <body className={`${sora.variable} ${manrope.variable} antialiased`}>
         {children}
+        <LiveBottomNav />
       </body>
     </html>
   );

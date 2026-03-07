@@ -10,8 +10,9 @@ type LiveSessionRow = {
   status: "live" | "ended";
 };
 
-export default function BoutiqueIndexPage() {
+export default function RecherchePage() {
   const stores = useMemo(() => getValidatedStores(), []);
+  const [query, setQuery] = useState("");
   const [liveBySeller, setLiveBySeller] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
@@ -37,7 +38,7 @@ export default function BoutiqueIndexPage() {
     void loadLiveStatuses();
 
     const channel = supabase
-      .channel("boutique-live-status")
+      .channel("search-live-status")
       .on("postgres_changes", { event: "*", schema: "public", table: "live_sessions" }, () => void loadLiveStatuses())
       .subscribe();
 
@@ -47,22 +48,42 @@ export default function BoutiqueIndexPage() {
     };
   }, []);
 
+  const normalizedQuery = query.trim().toLowerCase();
+  const results = stores.filter((seller) => {
+    if (!normalizedQuery) return true;
+    return (
+      seller.displayName.toLowerCase().includes(normalizedQuery) ||
+      seller.tagline.toLowerCase().includes(normalizedQuery) ||
+      seller.id.toLowerCase().includes(normalizedQuery)
+    );
+  });
+
   return (
     <main className="min-h-screen bg-slate-950 text-slate-100 p-4 md:p-8">
-      <section className="mx-auto max-w-6xl grid gap-6">
+      <section className="mx-auto max-w-6xl grid gap-5">
         <header className="flex items-center justify-between flex-wrap gap-3">
           <div>
-            <h1 className="text-2xl md:text-3xl font-bold">Toutes les boutiques</h1>
-            <p className="text-slate-300 text-sm md:text-base">Choisis une boutique et rejoins le live du vendeur quand il est actif.</p>
+            <h1 className="text-2xl md:text-3xl font-bold">Recherche boutiques et vendeurs</h1>
+            <p className="text-sm text-slate-300">Trouve rapidement une boutique et accede directement au live ou a la boutique.</p>
           </div>
-          <Link href="/watch" className="rounded-full bg-emerald-600 px-4 py-2 font-semibold">
-            Voir les lives
+          <Link href="/boutique" className="rounded-full bg-slate-700 px-4 py-2 font-semibold">
+            Toutes les boutiques
           </Link>
         </header>
 
-        <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-5">
-          {stores.map((seller) => {
+        <div className="rounded-2xl border border-slate-700 bg-slate-900/70 p-4">
+          <input
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="Rechercher vendeur, boutique, activite..."
+            className="w-full rounded-xl border border-slate-600 bg-slate-800 px-4 py-3 text-sm outline-none"
+          />
+        </div>
+
+        <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          {results.map((seller) => {
             const isLive = Boolean(liveBySeller[seller.id]);
+
             return (
               <article key={seller.id} className="rounded-2xl border border-slate-700 bg-slate-900/70 p-4 grid gap-3">
                 <div className="flex items-center gap-3">
@@ -72,7 +93,7 @@ export default function BoutiqueIndexPage() {
                     className="h-12 w-12 rounded-full border border-slate-500 bg-slate-800"
                   />
                   <div>
-                    <h2 className="font-semibold leading-tight">{seller.displayName}</h2>
+                    <h2 className="font-semibold">{seller.displayName}</h2>
                     <p className={`text-xs font-semibold ${isLive ? "text-emerald-300" : "text-slate-400"}`}>
                       {isLive ? "En live" : "Hors ligne"}
                     </p>
@@ -81,22 +102,24 @@ export default function BoutiqueIndexPage() {
 
                 <p className="text-sm text-slate-300">{seller.tagline}</p>
 
-                {isLive ? (
-                  <Link href="/watch" className="inline-flex w-fit rounded-full bg-emerald-600 px-4 py-2 text-sm font-semibold">
-                    Rejoindre le live
+                <div className="flex gap-2 flex-wrap">
+                  <Link href={`/boutique/${encodeURIComponent(seller.id)}`} className="rounded-full bg-orange-500 px-3 py-2 text-xs font-semibold">
+                    Ouvrir boutique
                   </Link>
-                ) : (
-                  <Link
-                    href={`/boutique/${encodeURIComponent(seller.id)}`}
-                    className="inline-flex w-fit rounded-full bg-orange-500 px-4 py-2 text-sm font-semibold"
-                  >
-                    Entrer dans la boutique
+                  <Link href="/watch" className={`rounded-full px-3 py-2 text-xs font-semibold ${isLive ? "bg-emerald-600" : "bg-slate-700"}`}>
+                    {isLive ? "Rejoindre live" : "Voir lives"}
                   </Link>
-                )}
+                </div>
               </article>
             );
           })}
         </div>
+
+        {!results.length ? (
+          <article className="rounded-2xl border border-slate-700 bg-slate-900/70 p-5 text-sm text-slate-300">
+            Aucun resultat. Essaie avec le nom du vendeur ou un mot-cle de la boutique.
+          </article>
+        ) : null}
       </section>
     </main>
   );
