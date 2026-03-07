@@ -18,6 +18,14 @@ body {
   font-family: var(--font-manrope), sans-serif;
 }
 
+.safe-bottom-spacer {
+  height: calc(5.25rem + env(safe-area-inset-bottom));
+}
+
+.safe-bottom-nav {
+  padding-bottom: calc(env(safe-area-inset-bottom) + 0.35rem);
+}
+
 /* Force centered framing for injected Agora video elements. */
 #creator-preview,
 #creator-preview > div,

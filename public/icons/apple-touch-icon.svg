@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="180" height="180" viewBox="0 0 180 180">
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#ef4444" />
+      <stop offset="100%" stop-color="#991b1b" />
+    </linearGradient>
+  </defs>
+  <rect width="180" height="180" rx="38" fill="#050a16"/>
+  <circle cx="90" cy="90" r="56" fill="url(#g)"/>
+  <text x="90" y="102" text-anchor="middle" fill="#ffffff" font-size="38" font-family="Arial, sans-serif" font-weight="700">PL</text>
+</svg>

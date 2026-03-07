@@ -60,8 +60,8 @@ export default function LiveBottomNav() {
 
   return (
     <>
-      <div className="h-24 md:h-28" aria-hidden />
-      <nav className="fixed bottom-0 left-0 right-0 z-40 border-t border-slate-700 bg-slate-950/95 backdrop-blur navGlowBar">
+      <div className="safe-bottom-spacer" aria-hidden />
+      <nav className="safe-bottom-nav fixed bottom-0 left-0 right-0 z-40 border-t border-slate-700 bg-slate-950/95 backdrop-blur navGlowBar">
         <div className="mx-auto flex h-20 max-w-xl items-center justify-between px-7 relative">
           <button
             type="button"
