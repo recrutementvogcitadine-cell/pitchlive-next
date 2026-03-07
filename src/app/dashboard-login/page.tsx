@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState, type FormEvent } from "react";
+import { useState, type FormEvent } from "react";
 import { createClient } from "@/lib/supabase/client";
 
 function resolveRedirectTarget() {
@@ -14,7 +14,6 @@ function resolveRedirectTarget() {
 }
 
 export default function DashboardLoginPage() {
-  const supabase = useMemo(() => createClient(), []);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
@@ -26,6 +25,7 @@ export default function DashboardLoginPage() {
     setError(null);
 
     try {
+      const supabase = createClient();
       const { error: signInError } = await supabase.auth.signInWithPassword({
         email: email.trim(),
         password,

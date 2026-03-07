@@ -1,16 +1,24 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import type { LiveSession } from "@/lib/types";
 
 export function useLiveSession() {
-  const supabase = useMemo(() => createClient(), []);
+  const supabaseRef = useRef<ReturnType<typeof createClient> | null>(null);
   const [session, setSession] = useState<LiveSession | null>(null);
   const [loading, setLoading] = useState(true);
 
+  const getSupabase = () => {
+    if (!supabaseRef.current) {
+      supabaseRef.current = createClient();
+    }
+    return supabaseRef.current;
+  };
+
   useEffect(() => {
     let mounted = true;
+    const supabase = getSupabase();
 
     const load = async () => {
       const { data } = await supabase
@@ -44,7 +52,7 @@ export function useLiveSession() {
       mounted = false;
       void supabase.removeChannel(channel);
     };
-  }, [supabase]);
+  }, []);
 
   return { session, loading };
 }

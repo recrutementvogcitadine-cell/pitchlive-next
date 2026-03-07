@@ -9,7 +9,6 @@ export type SellerProduct = {
 export type SellerStore = {
   id: string;
   displayName: string;
-  avatarUrl: string;
   tagline: string;
   whatsappNumber: string;
   isValidated: boolean;
@@ -29,7 +28,6 @@ export const SELLER_STORES: SellerStore[] = [
   {
     id: "main-creator",
     displayName: "Awa Store",
-    avatarUrl: "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=200&h=200&fit=crop",
     tagline: "Mode femme premium et tendances Abidjan",
     whatsappNumber: "2250701234567",
     isValidated: true,
@@ -81,7 +79,6 @@ export const SELLER_STORES: SellerStore[] = [
   {
     id: "tech-pro",
     displayName: "Tech Pro CI",
-    avatarUrl: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=200&h=200&fit=crop",
     tagline: "Smartphones et accessoires garantis",
     whatsappNumber: "2250509988776",
     isValidated: true,

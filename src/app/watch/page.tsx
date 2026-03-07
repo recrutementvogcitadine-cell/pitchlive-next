@@ -78,7 +78,6 @@ function enforcePlayerVideoStyle(containerId: string) {
 
 export default function WatchPage() {
   const { session, loading } = useLiveSession();
-  const supabase = useMemo(() => createClient(), []);
   const [client, setClient] = useState<IAgoraRTCClient | null>(null);
   const [floatingHearts, setFloatingHearts] = useState<FloatingHeart[]>([]);
   const [likesCount, setLikesCount] = useState(0);
@@ -87,6 +86,14 @@ export default function WatchPage() {
   const [notifyToast, setNotifyToast] = useState<string | null>(null);
   const [sellerWhatsapp, setSellerWhatsapp] = useState<string>("");
   const resubscribeTimerRef = useRef<number | null>(null);
+  const supabaseRef = useRef<ReturnType<typeof createClient> | null>(null);
+
+  const getSupabase = () => {
+    if (!supabaseRef.current) {
+      supabaseRef.current = createClient();
+    }
+    return supabaseRef.current;
+  };
 
   const viewerIdentity = useMemo(() => {
     if (typeof window === "undefined") return { id: "guest", username: "guest" };
@@ -118,6 +125,7 @@ export default function WatchPage() {
     if (!session) return;
     addHeart();
     setLikesCount((prev) => prev + 1);
+    const supabase = getSupabase();
     await supabase.from("likes").insert({
       live_session_id: session.id,
       user_id: viewerIdentity.id,
@@ -131,6 +139,7 @@ export default function WatchPage() {
   const sendGift = async (giftType: string) => {
     if (!session) return;
     setGiftsCount((prev) => prev + 1);
+    const supabase = getSupabase();
     await supabase.from("gifts").insert({
       live_session_id: session.id,
       user_id: viewerIdentity.id,
@@ -175,6 +184,7 @@ export default function WatchPage() {
   const followCreator = async () => {
     if (!session) return;
     setFollowersCount((prev) => prev + 1);
+    const supabase = getSupabase();
     await supabase.from("followers").upsert(
       {
         creator_id: session.creator_id,
@@ -187,6 +197,7 @@ export default function WatchPage() {
   useEffect(() => {
     if (!session) return;
     let mounted = true;
+    const supabase = getSupabase();
 
     const loadStats = async () => {
       const [likes, gifts, followers] = await Promise.all([
@@ -217,7 +228,7 @@ export default function WatchPage() {
       mounted = false;
       void supabase.removeChannel(channel);
     };
-  }, [session, supabase]);
+  }, [session]);
 
   useEffect(() => {
     if (!session?.creator_id) return;
@@ -245,6 +256,7 @@ export default function WatchPage() {
   useEffect(() => {
     if (!session) return;
     const presenceId = crypto.randomUUID();
+    const supabase = getSupabase();
 
     const join = async () => {
       await supabase.from("live_presence").insert({
@@ -259,7 +271,7 @@ export default function WatchPage() {
     return () => {
       void supabase.from("live_presence").delete().eq("id", presenceId);
     };
-  }, [session, supabase, viewerIdentity.id]);
+  }, [session, viewerIdentity.id]);
 
   useEffect(() => {
     if (!session || !env.agoraAppId) return;
@@ -378,6 +390,7 @@ export default function WatchPage() {
   }, [session?.id, session?.channel_name]);
 
   useEffect(() => {
+    const supabase = getSupabase();
     const channel = supabase
       .channel("live-notifications")
       .on("postgres_changes", { event: "INSERT", schema: "public", table: "live_sessions" }, (payload) => {
@@ -392,7 +405,7 @@ export default function WatchPage() {
     return () => {
       void supabase.removeChannel(channel);
     };
-  }, [supabase]);
+  }, []);
 
   if (loading) {
     return <main className="livePage emptyState">Chargement du live...</main>;

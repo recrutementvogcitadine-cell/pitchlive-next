@@ -82,12 +82,9 @@ export default function SellerBoutiquePage() {
     <main className="min-h-screen bg-slate-950 text-slate-100 p-4 md:p-8">
       <section className="mx-auto max-w-6xl grid gap-6">
         <header className="rounded-2xl border border-slate-700 bg-slate-900/70 p-4 md:p-5 grid gap-3">
-          <div className="flex items-center gap-3">
-            <img src={store.avatarUrl} alt={displayName} className="h-14 w-14 rounded-full object-cover" />
-            <div>
-              <h1 className="text-2xl md:text-3xl font-bold">{displayName}</h1>
-              <p className="text-emerald-300 text-sm">Vendeur valide</p>
-            </div>
+          <div>
+            <h1 className="text-2xl md:text-3xl font-bold">{displayName}</h1>
+            <p className="text-emerald-300 text-sm">Vendeur valide</p>
           </div>
           <p className="text-slate-300">{tagline}</p>
           <p className="text-xs text-slate-400">Catalogue limite a 6 articles pour l&apos;instant.</p>

@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { env } from "@/lib/env";
 import { createClient } from "@/lib/supabase/client";
 
@@ -233,7 +233,6 @@ function enforcePreviewVideoStyle(containerId: string) {
 }
 
 export default function CreatorStudioPage() {
-  const supabase = useMemo(() => createClient(), []);
   const [title, setTitle] = useState("Live PITCH LIVE");
   const [busy, setBusy] = useState(false);
   const [isLive, setIsLive] = useState(false);
@@ -427,6 +426,7 @@ export default function CreatorStudioPage() {
       }
       saveCameraProfile(preferredCameraId, cameraLabel);
 
+      const supabase = createClient();
       const interval = window.setInterval(async () => {
         const { count } = await supabase
           .from("live_presence")

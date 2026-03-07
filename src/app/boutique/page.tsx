@@ -20,12 +20,9 @@ export default function BoutiqueIndexPage() {
         <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-5">
           {stores.map((seller) => (
             <article key={seller.id} className="rounded-2xl border border-slate-700 bg-slate-900/70 p-4 grid gap-3">
-              <div className="flex items-center gap-3">
-                <img src={seller.avatarUrl} alt={seller.displayName} className="h-12 w-12 rounded-full object-cover" />
-                <div>
-                  <h2 className="font-semibold leading-tight">{seller.displayName}</h2>
-                  <p className="text-xs text-emerald-300">Vendeur valide</p>
-                </div>
+              <div>
+                <h2 className="font-semibold leading-tight">{seller.displayName}</h2>
+                <p className="text-xs text-emerald-300">Vendeur valide</p>
               </div>
               <p className="text-sm text-slate-300">{seller.tagline}</p>
               <Link
