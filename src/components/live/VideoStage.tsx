@@ -12,10 +12,11 @@ type FloatingHeart = {
 type Props = {
   floatingHearts: FloatingHeart[];
   onStageTap: () => void;
+  playerId?: string;
   children?: React.ReactNode;
 };
 
-export default function VideoStage({ floatingHearts, onStageTap, children }: Props) {
+export default function VideoStage({ floatingHearts, onStageTap, playerId = "agora-player", children }: Props) {
   const gradient = useMemo(
     () =>
       "linear-gradient(180deg, rgba(10,14,23,0.06) 0%, rgba(5,10,22,0.45) 43%, rgba(5,10,22,0.94) 100%)",
@@ -27,7 +28,7 @@ export default function VideoStage({ floatingHearts, onStageTap, children }: Pro
       <div className="stageVideoFrame">
         <div className="stageVideoBackdrop" />
         <div className="stageVideoGradient" style={{ background: gradient }} />
-        <div id="agora-player" className="agoraPlayer" />
+        <div id={playerId} className="agoraPlayer" />
       </div>
       {floatingHearts.map((heart) => (
         <span

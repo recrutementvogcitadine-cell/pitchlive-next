@@ -9,10 +9,11 @@ import JoinTicker from "@/components/live/JoinTicker";
 import LiveHeader from "@/components/live/LiveHeader";
 import VideoStage from "@/components/live/VideoStage";
 import { useDoubleTap } from "@/hooks/useDoubleTap";
-import { useLiveSession } from "@/hooks/useLiveSession";
+import { useLiveSessions } from "@/hooks/useLiveSessions";
 import { env } from "@/lib/env";
 import { createClient } from "@/lib/supabase/client";
 import { normalizeWhatsappNumber } from "@/lib/boutique-data";
+import type { LiveSession } from "@/lib/types";
 import "@/styles/live.css";
 
 type FloatingHeart = {
@@ -30,7 +31,6 @@ type JoinTickerItem = {
 type IAgoraRTCClient = import("agora-rtc-sdk-ng").IAgoraRTCClient;
 
 function toStableAgoraUid(seed: string): number {
-  // Keep UID deterministic per viewer and inside uint32 positive range.
   let hash = 2166136261;
   for (let i = 0; i < seed.length; i += 1) {
     hash ^= seed.charCodeAt(i);
@@ -92,8 +92,13 @@ function enforcePlayerVideoStyle(containerId: string) {
   };
 }
 
+function clamp(value: number, min: number, max: number) {
+  return Math.max(min, Math.min(max, value));
+}
+
 export default function WatchPage() {
-  const { session, loading } = useLiveSession();
+  const { sessions, loading } = useLiveSessions();
+  const [activeIndex, setActiveIndex] = useState(0);
   const [client, setClient] = useState<IAgoraRTCClient | null>(null);
   const [floatingHearts, setFloatingHearts] = useState<FloatingHeart[]>([]);
   const [likesCount, setLikesCount] = useState(0);
@@ -105,6 +110,9 @@ export default function WatchPage() {
   const [isFollowingSeller, setIsFollowingSeller] = useState(false);
   const [joinTickerItems, setJoinTickerItems] = useState<JoinTickerItem[]>([]);
   const [audioUnlockRequired, setAudioUnlockRequired] = useState(false);
+
+  const feedRef = useRef<HTMLDivElement | null>(null);
+  const scrollTickRef = useRef<number | null>(null);
   const resubscribeTimerRef = useRef<number | null>(null);
   const supabaseRef = useRef<ReturnType<typeof createClient> | null>(null);
   const remoteAudioTracksRef = useRef<Map<string, import("agora-rtc-sdk-ng").IRemoteAudioTrack>>(new Map());
@@ -129,9 +137,42 @@ export default function WatchPage() {
     return generated;
   }, []);
 
+  const activeSession: LiveSession | null = sessions[activeIndex] ?? null;
+  const activePlayerId = activeSession ? `agora-player-${activeSession.id}` : "agora-player";
+
   const viewerAgoraUid = useMemo(() => {
-    return toStableAgoraUid(viewerIdentity.id);
-  }, [viewerIdentity.id]);
+    const sessionSuffix = activeSession?.id ?? "none";
+    return toStableAgoraUid(`${viewerIdentity.id}:${sessionSuffix}`);
+  }, [viewerIdentity.id, activeSession?.id]);
+
+  useEffect(() => {
+    if (!sessions.length) {
+      setActiveIndex(0);
+      return;
+    }
+    setActiveIndex((prev) => clamp(prev, 0, sessions.length - 1));
+  }, [sessions.length]);
+
+  const onFeedScroll = () => {
+    if (!feedRef.current || !sessions.length) return;
+    if (scrollTickRef.current) {
+      window.cancelAnimationFrame(scrollTickRef.current);
+    }
+
+    scrollTickRef.current = window.requestAnimationFrame(() => {
+      const feed = feedRef.current;
+      if (!feed) return;
+      const idx = Math.round(feed.scrollTop / Math.max(feed.clientHeight, 1));
+      setActiveIndex(clamp(idx, 0, sessions.length - 1));
+    });
+  };
+
+  const scrollToIndex = (index: number) => {
+    const feed = feedRef.current;
+    if (!feed) return;
+    const next = clamp(index, 0, Math.max(sessions.length - 1, 0));
+    feed.scrollTo({ top: next * feed.clientHeight, behavior: "smooth" });
+  };
 
   const playRemoteAudioTracks = () => {
     let played = 0;
@@ -177,12 +218,12 @@ export default function WatchPage() {
   };
 
   const sendLike = async () => {
-    if (!session) return;
+    if (!activeSession) return;
     addHeart();
     setLikesCount((prev) => prev + 1);
     const supabase = getSupabase();
     await supabase.from("likes").insert({
-      live_session_id: session.id,
+      live_session_id: activeSession.id,
       user_id: viewerIdentity.id,
     });
   };
@@ -192,11 +233,11 @@ export default function WatchPage() {
   });
 
   const sendGift = async (giftType: string) => {
-    if (!session) return;
+    if (!activeSession) return;
     setGiftsCount((prev) => prev + 1);
     const supabase = getSupabase();
     await supabase.from("gifts").insert({
-      live_session_id: session.id,
+      live_session_id: activeSession.id,
       user_id: viewerIdentity.id,
       username: viewerIdentity.username,
       gift_type: giftType,
@@ -209,8 +250,8 @@ export default function WatchPage() {
       return;
     }
 
-    if (session?.creator_id) {
-      window.location.href = `/boutique/${encodeURIComponent(session.creator_id)}`;
+    if (activeSession?.creator_id) {
+      window.location.href = `/boutique/${encodeURIComponent(activeSession.creator_id)}`;
       return;
     }
 
@@ -237,13 +278,13 @@ export default function WatchPage() {
   };
 
   const followCreator = async () => {
-    if (!session) return;
+    if (!activeSession) return;
     setFollowersCount((prev) => prev + 1);
     setIsFollowingSeller(true);
     const supabase = getSupabase();
     await supabase.from("followers").upsert(
       {
-        creator_id: session.creator_id,
+        creator_id: activeSession.creator_id,
         follower_id: viewerIdentity.id,
       },
       { onConflict: "creator_id,follower_id" }
@@ -251,15 +292,15 @@ export default function WatchPage() {
   };
 
   useEffect(() => {
-    if (!session) return;
+    if (!activeSession) return;
     let mounted = true;
     const supabase = getSupabase();
 
     const loadStats = async () => {
       const [likes, gifts, followers] = await Promise.all([
-        supabase.from("likes").select("id", { count: "exact", head: true }).eq("live_session_id", session.id),
-        supabase.from("gifts").select("id", { count: "exact", head: true }).eq("live_session_id", session.id),
-        supabase.from("followers").select("creator_id", { count: "exact", head: true }).eq("creator_id", session.creator_id),
+        supabase.from("likes").select("id", { count: "exact", head: true }).eq("live_session_id", activeSession.id),
+        supabase.from("gifts").select("id", { count: "exact", head: true }).eq("live_session_id", activeSession.id),
+        supabase.from("followers").select("creator_id", { count: "exact", head: true }).eq("creator_id", activeSession.creator_id),
       ]);
 
       if (!mounted) return;
@@ -271,11 +312,11 @@ export default function WatchPage() {
     void loadStats();
 
     const channel = supabase
-      .channel(`live-stats-${session.id}`)
-      .on("postgres_changes", { event: "INSERT", schema: "public", table: "likes", filter: `live_session_id=eq.${session.id}` }, () => {
+      .channel(`live-stats-${activeSession.id}`)
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "likes", filter: `live_session_id=eq.${activeSession.id}` }, () => {
         setLikesCount((prev) => prev + 1);
       })
-      .on("postgres_changes", { event: "INSERT", schema: "public", table: "gifts", filter: `live_session_id=eq.${session.id}` }, () => {
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "gifts", filter: `live_session_id=eq.${activeSession.id}` }, () => {
         setGiftsCount((prev) => prev + 1);
       })
       .subscribe();
@@ -284,15 +325,15 @@ export default function WatchPage() {
       mounted = false;
       void supabase.removeChannel(channel);
     };
-  }, [session]);
+  }, [activeSession?.id, activeSession?.creator_id]);
 
   useEffect(() => {
-    if (!session?.creator_id) return;
+    if (!activeSession?.creator_id) return;
 
     let mounted = true;
     const loadSellerProfile = async () => {
       try {
-        const res = await fetch(`/api/seller/profile?sellerId=${encodeURIComponent(session.creator_id)}`, { cache: "no-store" });
+        const res = await fetch(`/api/seller/profile?sellerId=${encodeURIComponent(activeSession.creator_id)}`, { cache: "no-store" });
         const body = (await res.json()) as { profile?: { whatsappNumber?: string; storeName?: string } | null };
         if (!mounted) return;
         setSellerWhatsapp(body.profile?.whatsappNumber ?? "");
@@ -309,17 +350,17 @@ export default function WatchPage() {
     return () => {
       mounted = false;
     };
-  }, [session?.creator_id]);
+  }, [activeSession?.creator_id]);
 
   useEffect(() => {
-    if (!session) return;
+    if (!activeSession) return;
     const presenceId = crypto.randomUUID();
     const supabase = getSupabase();
 
     const join = async () => {
       await supabase.from("live_presence").insert({
         id: presenceId,
-        live_session_id: session.id,
+        live_session_id: activeSession.id,
         user_id: viewerIdentity.id,
       });
     };
@@ -329,17 +370,17 @@ export default function WatchPage() {
     return () => {
       void supabase.from("live_presence").delete().eq("id", presenceId);
     };
-  }, [session, viewerIdentity.id]);
+  }, [activeSession?.id, viewerIdentity.id]);
 
   useEffect(() => {
-    if (!session?.id) return;
+    if (!activeSession?.id) return;
 
     const supabase = getSupabase();
     const channel = supabase
-      .channel(`live-presence-watch-${session.id}`)
+      .channel(`live-presence-watch-${activeSession.id}`)
       .on(
         "postgres_changes",
-        { event: "INSERT", schema: "public", table: "live_presence", filter: `live_session_id=eq.${session.id}` },
+        { event: "INSERT", schema: "public", table: "live_presence", filter: `live_session_id=eq.${activeSession.id}` },
         (payload) => {
           const row = payload.new as { user_id?: string; id?: string };
           if (!row.user_id) return;
@@ -351,30 +392,29 @@ export default function WatchPage() {
     return () => {
       void supabase.removeChannel(channel);
     };
-  }, [session?.id, viewerIdentity.id]);
+  }, [activeSession?.id, viewerIdentity.id]);
 
   useEffect(() => {
-    if (!session?.creator_id) return;
-    const key = `pitchlive.following.${session.creator_id}`;
+    if (!activeSession?.creator_id) return;
+    const key = `pitchlive.following.${activeSession.creator_id}`;
     const existing = window.localStorage.getItem(key);
     setIsFollowingSeller(existing === "1");
-  }, [session?.creator_id]);
+  }, [activeSession?.creator_id]);
 
   useEffect(() => {
-    if (!session?.creator_id) return;
-    if (!isFollowingSeller) return;
-    const key = `pitchlive.following.${session.creator_id}`;
+    if (!activeSession?.creator_id || !isFollowingSeller) return;
+    const key = `pitchlive.following.${activeSession.creator_id}`;
     window.localStorage.setItem(key, "1");
-  }, [isFollowingSeller, session?.creator_id]);
+  }, [isFollowingSeller, activeSession?.creator_id]);
 
   useEffect(() => {
-    if (!session || !env.agoraAppId) return;
+    if (!activeSession || !env.agoraAppId) return;
+
     let rtc: IAgoraRTCClient | null = null;
     let mounted = true;
 
     const join = async () => {
       const AgoraRTC = (await import("agora-rtc-sdk-ng")).default;
-      // H264 is more reliable across mixed Android/iPhone spectator devices.
       rtc = AgoraRTC.createClient({ mode: "live", codec: "h264" });
       setClient(rtc);
       const activeRtc = rtc;
@@ -387,14 +427,13 @@ export default function WatchPage() {
         try {
           await activeRtc.subscribe(user, mediaType);
           if (mediaType === "video") {
-            // Try high stream, but do not block playback if Agora refuses the switch.
             try {
               await activeRtc.setRemoteVideoStreamType(user.uid, 0);
             } catch {
-              // Ignore and keep rendering the available stream.
+              // Keep rendering available stream type.
             }
-            user.videoTrack?.play("agora-player", { fit: "contain", mirror: false });
-            enforcePlayerVideoStyle("agora-player");
+            user.videoTrack?.play(activePlayerId, { fit: "contain", mirror: false });
+            enforcePlayerVideoStyle(activePlayerId);
           }
           if (mediaType === "audio") {
             if (!user.audioTrack) return;
@@ -407,7 +446,7 @@ export default function WatchPage() {
             }
           }
         } catch {
-          // Keep watcher resilient: retry loop below handles temporary RTC gaps.
+          // Retry loop below handles transient issues.
         }
       };
 
@@ -422,7 +461,6 @@ export default function WatchPage() {
         }
       };
 
-      // Register handlers before join to avoid missing early publications.
       activeRtc.on("user-published", async (user, mediaType) => {
         if (mediaType !== "video" && mediaType !== "audio") return;
         await subscribeAndPlay(user, mediaType);
@@ -432,7 +470,7 @@ export default function WatchPage() {
         if (mediaType !== "video" && mediaType !== "audio") return;
         if (mediaType === "video") {
           user.videoTrack?.stop();
-          const holder = document.getElementById("agora-player");
+          const holder = document.getElementById(activePlayerId);
           if (holder) holder.innerHTML = "";
         }
         if (mediaType === "audio") {
@@ -448,19 +486,17 @@ export default function WatchPage() {
       const tokenRes = await fetch("/api/agora/token", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ channel: session.channel_name, role: "subscriber", uid: viewerAgoraUid }),
+        body: JSON.stringify({ channel: activeSession.channel_name, role: "subscriber", uid: viewerAgoraUid }),
       });
       if (!tokenRes.ok) {
         throw new Error("Impossible de recuperer le token Agora pour ce spectateur.");
       }
       const tokenBody = (await tokenRes.json()) as { token?: string };
       await activeRtc.setClientRole("audience");
-      await activeRtc.join(env.agoraAppId, session.channel_name, tokenBody.token ?? null, viewerAgoraUid);
+      await activeRtc.join(env.agoraAppId, activeSession.channel_name, tokenBody.token ?? null, viewerAgoraUid);
 
-      // Fallback: subscribe to already-connected publishers if event timing was missed.
       await ensureRemotePlayback();
 
-      // Keep repairing subscriptions after host camera switches or transient network losses.
       resubscribeTimerRef.current = window.setInterval(() => {
         void ensureRemotePlayback();
       }, 2200);
@@ -485,7 +521,7 @@ export default function WatchPage() {
       void rtc?.leave();
       setClient(null);
     };
-  }, [session?.id, session?.channel_name, viewerAgoraUid]);
+  }, [activeSession?.id, activeSession?.channel_name, activePlayerId, viewerAgoraUid]);
 
   useEffect(() => {
     const supabase = getSupabase();
@@ -509,7 +545,7 @@ export default function WatchPage() {
     return <main className="livePage emptyState">Chargement du live...</main>;
   }
 
-  if (!session) {
+  if (!sessions.length) {
     return (
       <main className="livePage emptyState">
         <div>
@@ -522,36 +558,53 @@ export default function WatchPage() {
   }
 
   return (
-    <main className="livePage">
-      <VideoStage floatingHearts={floatingHearts} onStageTap={onDoubleTap}>
-        {notifyToast ? <div className="notifyToast">{notifyToast}</div> : null}
-        {audioUnlockRequired ? (
-          <button type="button" className="audioUnlockButton" onClick={playRemoteAudioTracks}>
-            Activer le son
-          </button>
-        ) : null}
-        <LiveHeader
-          sellerName={sellerDisplayName}
-          likes={likesCount}
-          viewers={session.viewers_count}
-          isFollowing={isFollowingSeller}
-          onFollow={() => void followCreator()}
-          onClose={closeLiveView}
-        />
-        <JoinTicker items={joinTickerItems} />
-        <GiftTray onSendGift={(gift) => void sendGift(gift)} />
-        <ActionRail
-          likes={likesCount}
-          gifts={giftsCount}
-          followers={followersCount}
-          onLike={() => void sendLike()}
-          onGift={() => void sendGift("spark")}
-          onFollow={() => void followCreator()}
-          onStore={openSellerStore}
-          onWhatsApp={openSellerWhatsApp}
-        />
-        <ChatOverlay liveSessionId={session.id} username={viewerIdentity.username} />
-      </VideoStage>
+    <main ref={feedRef} className="liveFeedScroll" onScroll={onFeedScroll}>
+      {sessions.map((session, index) => {
+        const isActive = index === activeIndex;
+        return (
+          <div key={session.id} className="liveFeedItem" onClick={() => !isActive && scrollToIndex(index)}>
+            <VideoStage
+              playerId={`agora-player-${session.id}`}
+              floatingHearts={isActive ? floatingHearts : []}
+              onStageTap={isActive ? onDoubleTap : () => scrollToIndex(index)}
+            >
+              {isActive ? (
+                <>
+                  {notifyToast ? <div className="notifyToast">{notifyToast}</div> : null}
+                  {audioUnlockRequired ? (
+                    <button type="button" className="audioUnlockButton" onClick={playRemoteAudioTracks}>
+                      Activer le son
+                    </button>
+                  ) : null}
+                  <LiveHeader
+                    sellerName={sellerDisplayName}
+                    likes={likesCount}
+                    viewers={session.viewers_count}
+                    isFollowing={isFollowingSeller}
+                    onFollow={() => void followCreator()}
+                    onClose={closeLiveView}
+                  />
+                  <JoinTicker items={joinTickerItems} />
+                  <GiftTray onSendGift={(gift) => void sendGift(gift)} />
+                  <ActionRail
+                    likes={likesCount}
+                    gifts={giftsCount}
+                    followers={followersCount}
+                    onLike={() => void sendLike()}
+                    onGift={() => void sendGift("spark")}
+                    onFollow={() => void followCreator()}
+                    onStore={openSellerStore}
+                    onWhatsApp={openSellerWhatsApp}
+                  />
+                  <ChatOverlay liveSessionId={session.id} username={viewerIdentity.username} />
+                </>
+              ) : (
+                <div className="feedSwipeHint">Glisse vers le haut ou bas pour changer de live</div>
+              )}
+            </VideoStage>
+          </div>
+        );
+      })}
     </main>
   );
 }
