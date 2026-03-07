@@ -22,11 +22,15 @@ type ThroughputPoint = {
   presence: number;
 };
 
-type CountResult = {
-  count: number | null;
+type AlertItem = {
+  id: string;
+  message: string;
+  severity: "info" | "warning" | "critical";
+  at: string;
 };
 
 const ADMIN_AUTH_KEY = "pitchlive.admin.auth";
+const DASHBOARD_SOUND_KEY = "pitchlive.admin.dashboard.sound";
 const EMPTY_STATS: DashboardStats = {
   activeLives: 0,
   totalLives: 0,
@@ -38,10 +42,6 @@ const EMPTY_STATS: DashboardStats = {
   totalSellerProfiles: 0,
   totalPushSubscriptions: 0,
 };
-
-function countOrZero(result: CountResult | null | undefined) {
-  return result?.count ?? 0;
-}
 
 function formatRelativeDate(iso: string) {
   const target = new Date(iso).getTime();
@@ -101,9 +101,36 @@ function minuteKeyFromIso(iso: string) {
   return `${y}-${m}-${day}T${hh}:${mm}`;
 }
 
+function playBeep(
+  audioContext: AudioContext,
+  frequency: number,
+  durationSec: number,
+  startAt: number,
+  gainValue: number
+) {
+  const oscillator = audioContext.createOscillator();
+  const gain = audioContext.createGain();
+
+  oscillator.type = "sine";
+  oscillator.frequency.value = frequency;
+
+  gain.gain.setValueAtTime(0.0001, startAt);
+  gain.gain.exponentialRampToValueAtTime(gainValue, startAt + 0.02);
+  gain.gain.exponentialRampToValueAtTime(0.0001, startAt + durationSec);
+
+  oscillator.connect(gain);
+  gain.connect(audioContext.destination);
+
+  oscillator.start(startAt);
+  oscillator.stop(startAt + durationSec);
+}
+
 export default function DashboardPage() {
   const supabase = useMemo(() => createClient(), []);
   const refreshTimerRef = useRef<number | null>(null);
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const messageTimesRef = useRef<number[]>([]);
+  const lastBurstAlertAtRef = useRef<number>(0);
 
   const [isAuthed, setIsAuthed] = useState(false);
   const [pin, setPin] = useState("");
@@ -116,12 +143,25 @@ export default function DashboardPage() {
   const [activityEvents, setActivityEvents] = useState<ActivityEvent[]>([]);
   const [throughput, setThroughput] = useState<ThroughputPoint[]>(makeLast15MinSlots());
   const [lastRefreshAt, setLastRefreshAt] = useState<string | null>(null);
+  const [soundEnabled, setSoundEnabled] = useState(true);
+  const [alerts, setAlerts] = useState<AlertItem[]>([]);
 
   useEffect(() => {
     const existing = window.sessionStorage.getItem(ADMIN_AUTH_KEY);
     setIsAuthed(existing === "1");
+
+    const savedSound = window.localStorage.getItem(DASHBOARD_SOUND_KEY);
+    if (savedSound === "0") {
+      setSoundEnabled(false);
+    }
+
     setLoading(false);
   }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    window.localStorage.setItem(DASHBOARD_SOUND_KEY, soundEnabled ? "1" : "0");
+  }, [soundEnabled]);
 
   const verifyPin = async () => {
     setAuthError(null);
@@ -158,6 +198,58 @@ export default function DashboardPage() {
     window.sessionStorage.removeItem(ADMIN_AUTH_KEY);
     setIsAuthed(false);
     setRealtimeConnected(false);
+  };
+
+  const ensureAudioContext = async () => {
+    if (typeof window === "undefined") return null;
+    if (!audioContextRef.current) {
+      const Context = window.AudioContext || (window as Window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+      if (!Context) return null;
+      audioContextRef.current = new Context();
+    }
+
+    if (audioContextRef.current.state === "suspended") {
+      await audioContextRef.current.resume();
+    }
+
+    return audioContextRef.current;
+  };
+
+  const playAlertSound = async (severity: AlertItem["severity"]) => {
+    if (!soundEnabled) return;
+    const ctx = await ensureAudioContext();
+    if (!ctx) return;
+
+    const t0 = ctx.currentTime + 0.01;
+    if (severity === "critical") {
+      playBeep(ctx, 880, 0.14, t0, 0.08);
+      playBeep(ctx, 740, 0.14, t0 + 0.18, 0.08);
+      playBeep(ctx, 980, 0.18, t0 + 0.36, 0.09);
+      return;
+    }
+
+    if (severity === "warning") {
+      playBeep(ctx, 700, 0.11, t0, 0.065);
+      playBeep(ctx, 620, 0.11, t0 + 0.15, 0.065);
+      return;
+    }
+
+    playBeep(ctx, 560, 0.1, t0, 0.05);
+  };
+
+  const pushAlert = (message: string, severity: AlertItem["severity"], withSound = true) => {
+    const alert: AlertItem = {
+      id: `${Date.now()}-${Math.random()}`,
+      message,
+      severity,
+      at: new Date().toISOString(),
+    };
+
+    setAlerts((prev) => [alert, ...prev].slice(0, 40));
+
+    if (withSound) {
+      void playAlertSound(severity).catch(() => undefined);
+    }
   };
 
   useEffect(() => {
@@ -375,13 +467,52 @@ export default function DashboardPage() {
       }, 220);
     };
 
+    const onLiveSessionEvent = (payload: { eventType: string; new: Record<string, unknown> }) => {
+      scheduleReload();
+
+      if (payload.eventType !== "INSERT") return;
+      const status = String(payload.new.status ?? "");
+      if (status !== "live") return;
+      const title = String(payload.new.title ?? "Live");
+      pushAlert(`Nouveau live demarre: ${title}`, "critical", true);
+    };
+
+    const onMessageEvent = (payload: { eventType: string; new: Record<string, unknown> }) => {
+      scheduleReload();
+      if (payload.eventType !== "INSERT") return;
+
+      const now = Date.now();
+      messageTimesRef.current = [...messageTimesRef.current.filter((ts) => now - ts < 60_000), now];
+
+      const countLastMinute = messageTimesRef.current.length;
+      if (countLastMinute >= 25 && now - lastBurstAlertAtRef.current > 45_000) {
+        lastBurstAlertAtRef.current = now;
+        pushAlert(`Alerte pic chat: ${countLastMinute} messages/min`, "warning", true);
+      }
+    };
+
+    const onGiftEvent = (payload: { eventType: string; new: Record<string, unknown> }) => {
+      scheduleReload();
+      if (payload.eventType !== "INSERT") return;
+      const gift = String(payload.new.gift_type ?? "cadeau");
+      const user = String(payload.new.username ?? "visiteur");
+      pushAlert(`Nouveau cadeau ${gift} de ${user}`, "info", false);
+    };
+
+    const onFollowerEvent = (payload: { eventType: string; new: Record<string, unknown> }) => {
+      scheduleReload();
+      if (payload.eventType !== "INSERT") return;
+      const creator = String(payload.new.creator_id ?? "vendeur");
+      pushAlert(`Nouveau follower pour ${creator}`, "info", false);
+    };
+
     const channel = supabase
       .channel("admin-dashboard-realtime-v2")
-      .on("postgres_changes", { event: "*", schema: "public", table: "live_sessions" }, scheduleReload)
-      .on("postgres_changes", { event: "*", schema: "public", table: "messages" }, scheduleReload)
+      .on("postgres_changes", { event: "*", schema: "public", table: "live_sessions" }, onLiveSessionEvent)
+      .on("postgres_changes", { event: "*", schema: "public", table: "messages" }, onMessageEvent)
       .on("postgres_changes", { event: "*", schema: "public", table: "likes" }, scheduleReload)
-      .on("postgres_changes", { event: "*", schema: "public", table: "gifts" }, scheduleReload)
-      .on("postgres_changes", { event: "*", schema: "public", table: "followers" }, scheduleReload)
+      .on("postgres_changes", { event: "*", schema: "public", table: "gifts" }, onGiftEvent)
+      .on("postgres_changes", { event: "*", schema: "public", table: "followers" }, onFollowerEvent)
       .on("postgres_changes", { event: "*", schema: "public", table: "live_presence" }, scheduleReload)
       .on("postgres_changes", { event: "*", schema: "public", table: "seller_store_profiles" }, scheduleReload)
       .on("postgres_changes", { event: "*", schema: "public", table: "push_subscriptions" }, scheduleReload)
@@ -447,6 +578,15 @@ export default function DashboardPage() {
             <div className="flex gap-2 flex-wrap">
               <button
                 type="button"
+                onClick={() => setSoundEnabled((prev) => !prev)}
+                className={`rounded-full px-4 py-2 font-semibold ${
+                  soundEnabled ? "bg-emerald-700" : "bg-slate-700"
+                }`}
+              >
+                {soundEnabled ? "Son alertes: ON" : "Son alertes: OFF"}
+              </button>
+              <button
+                type="button"
                 onClick={() => window.location.reload()}
                 className="rounded-full bg-slate-700 px-4 py-2 font-semibold"
               >
@@ -468,6 +608,34 @@ export default function DashboardPage() {
               {realtimeConnected ? "Flux realtime connecte" : "Flux realtime en reconnexion"}
             </span>
             <span>Derniere sync: {lastRefreshAt ? new Date(lastRefreshAt).toLocaleTimeString("fr-FR") : "--:--:--"}</span>
+          </div>
+
+          <div className="rounded-xl border border-slate-700 bg-slate-950/50 p-3 grid gap-2">
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-sm font-semibold">Centre d'alertes equipe</p>
+              <span className="text-xs text-slate-400">{alerts.length} alertes recentes</span>
+            </div>
+            <div className="max-h-28 overflow-y-auto grid gap-1">
+              {alerts.length ? (
+                alerts.slice(0, 8).map((alert) => (
+                  <div
+                    key={alert.id}
+                    className={`rounded-lg border px-2 py-1 text-xs ${
+                      alert.severity === "critical"
+                        ? "border-rose-500/60 bg-rose-900/20 text-rose-100"
+                        : alert.severity === "warning"
+                          ? "border-amber-500/60 bg-amber-900/20 text-amber-100"
+                          : "border-sky-500/60 bg-sky-900/20 text-sky-100"
+                    }`}
+                  >
+                    <p>{alert.message}</p>
+                    <p className="opacity-80">{formatRelativeDate(alert.at)}</p>
+                  </div>
+                ))
+              ) : (
+                <p className="text-xs text-slate-400">Aucune alerte pour le moment.</p>
+              )}
+            </div>
           </div>
         </header>
 
