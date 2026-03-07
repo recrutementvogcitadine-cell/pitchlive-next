@@ -5,6 +5,7 @@ export const env = {
   agoraAppId: process.env.NEXT_PUBLIC_AGORA_APP_ID ?? "",
   sellerStoreUrl: process.env.NEXT_PUBLIC_SELLER_STORE_URL ?? "",
   sellerWhatsapp: process.env.NEXT_PUBLIC_SELLER_WHATSAPP ?? "",
+  webPushPublicKey: process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY ?? "",
 };
 
 export function hasClientEnv() {

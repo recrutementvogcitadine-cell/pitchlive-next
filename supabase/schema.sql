@@ -55,6 +55,18 @@ create table if not exists public.followers (
   primary key (creator_id, follower_id)
 );
 
+create table if not exists public.push_subscriptions (
+  id uuid primary key default gen_random_uuid(),
+  user_id text not null,
+  endpoint text not null unique,
+  p256dh text not null,
+  auth text not null,
+  enabled boolean not null default true,
+  user_agent text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
 create table if not exists public.live_presence (
   id uuid primary key default gen_random_uuid(),
   live_session_id uuid not null references public.live_sessions(id) on delete cascade,
@@ -74,6 +86,7 @@ create index if not exists idx_messages_live_session on public.messages(live_ses
 create index if not exists idx_likes_live_session on public.likes(live_session_id, created_at desc);
 create index if not exists idx_gifts_live_session on public.gifts(live_session_id, created_at desc);
 create index if not exists idx_presence_live_session on public.live_presence(live_session_id, joined_at desc);
+create index if not exists idx_push_subscriptions_user on public.push_subscriptions(user_id, enabled);
 
 alter table public.users enable row level security;
 alter table public.live_sessions enable row level security;
@@ -81,6 +94,7 @@ alter table public.messages enable row level security;
 alter table public.likes enable row level security;
 alter table public.gifts enable row level security;
 alter table public.followers enable row level security;
+alter table public.push_subscriptions enable row level security;
 alter table public.live_presence enable row level security;
 alter table public.seller_store_profiles enable row level security;
 
@@ -102,6 +116,9 @@ create policy gifts_all on public.gifts for all using (true) with check (true);
 
 drop policy if exists followers_all on public.followers;
 create policy followers_all on public.followers for all using (true) with check (true);
+
+drop policy if exists push_subscriptions_all on public.push_subscriptions;
+create policy push_subscriptions_all on public.push_subscriptions for all using (true) with check (true);
 
 drop policy if exists presence_all on public.live_presence;
 create policy presence_all on public.live_presence for all using (true) with check (true);

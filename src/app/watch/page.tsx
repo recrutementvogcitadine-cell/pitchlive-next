@@ -101,6 +101,13 @@ function clamp(value: number, min: number, max: number) {
   return Math.max(min, Math.min(max, value));
 }
 
+function urlBase64ToUint8Array(base64String: string) {
+  const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
+  const base64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/");
+  const rawData = atob(base64);
+  return Uint8Array.from(rawData, (char) => char.charCodeAt(0));
+}
+
 export default function WatchPage() {
   const { sessions, loading } = useLiveSessions();
   const [activeIndex, setActiveIndex] = useState(0);
@@ -306,21 +313,44 @@ export default function WatchPage() {
   const pushFollowerMilestoneNotification = async (threshold: number) => {
     if (!activeSession?.creator_id) return;
 
-    const payload = {
-      creatorId: activeSession.creator_id,
-      sessionId: activeSession.id,
-      sellerName: sellerDisplayName,
-      threshold,
-      title: activeSession.title,
-      at: new Date().toISOString(),
-      sourceViewerId: viewerIdentity.id,
-    };
+    await fetch("/api/push/notify-followers", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        creatorId: activeSession.creator_id,
+        sessionId: activeSession.id,
+        sellerName: sellerDisplayName,
+        threshold,
+      }),
+    });
+  };
 
-    const supabase = getSupabase();
-    const channel = supabase.channel(`heart-milestones-${activeSession.creator_id}`);
-    await channel.subscribe();
-    await channel.send({ type: "broadcast", event: "heart_milestone", payload });
-    await supabase.removeChannel(channel);
+  const ensurePushSubscription = async () => {
+    if (typeof window === "undefined") return;
+    if (!("serviceWorker" in navigator) || !("PushManager" in window)) return;
+    if (!("Notification" in window)) return;
+    if (!env.webPushPublicKey) return;
+
+    const permission = await Notification.requestPermission();
+    if (permission !== "granted") return;
+
+    const registration = await navigator.serviceWorker.register("/push-sw.js");
+    const existing = await registration.pushManager.getSubscription();
+    const subscription =
+      existing ??
+      (await registration.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(env.webPushPublicKey),
+      }));
+
+    await fetch("/api/push/subscribe", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        userId: viewerIdentity.id,
+        subscription,
+      }),
+    });
   };
 
   const tapStageToLike = () => {
@@ -399,6 +429,8 @@ export default function WatchPage() {
       },
       { onConflict: "creator_id,follower_id" }
     );
+
+    await ensurePushSubscription().catch(() => undefined);
   };
 
   useEffect(() => {
@@ -456,61 +488,6 @@ export default function WatchPage() {
 
     void pushFollowerMilestoneNotification(threshold).catch(() => undefined);
   }, [likesCount, activeSession?.id, activeSession?.creator_id]);
-
-  useEffect(() => {
-    if (!activeSession?.creator_id) return;
-    const supabase = getSupabase();
-    const channel = supabase
-      .channel(`heart-milestones-${activeSession.creator_id}`)
-      .on("broadcast", { event: "heart_milestone" }, (payload) => {
-        const data = payload.payload as {
-          creatorId?: string;
-          threshold?: number;
-          sellerName?: string;
-          sourceViewerId?: string;
-        };
-
-        if (!data || data.creatorId !== activeSession.creator_id) return;
-        if (data.sourceViewerId === viewerIdentity.id) return;
-
-        const isFollower =
-          typeof window !== "undefined" && window.localStorage.getItem(`pitchlive.following.${activeSession.creator_id}`) === "1";
-        if (!isFollower) return;
-
-        const threshold = Number(data.threshold ?? 0);
-        if (threshold > 0) {
-          setMilestoneLikes(threshold);
-          setMilestoneBellVisible(true);
-          window.setTimeout(() => setMilestoneBellVisible(false), 2000);
-        }
-
-        const seller = data.sellerName || sellerDisplayName;
-        const message = `${seller} est en live (${threshold} coeurs)`;
-        setNotifyToast(message);
-        window.setTimeout(() => setNotifyToast(null), 2400);
-
-        if (typeof navigator !== "undefined" && typeof navigator.vibrate === "function") {
-          navigator.vibrate([90, 60, 120]);
-        }
-
-        if (typeof window !== "undefined" && "Notification" in window) {
-          if (Notification.permission === "granted") {
-            new Notification("PITCH LIVE", { body: message });
-          } else if (Notification.permission === "default") {
-            void Notification.requestPermission().then((permission) => {
-              if (permission === "granted") {
-                new Notification("PITCH LIVE", { body: message });
-              }
-            });
-          }
-        }
-      })
-      .subscribe();
-
-    return () => {
-      void supabase.removeChannel(channel);
-    };
-  }, [activeSession?.creator_id, viewerIdentity.id, sellerDisplayName]);
 
   useEffect(() => {
     if (!activeSession?.creator_id) return;
@@ -591,6 +568,11 @@ export default function WatchPage() {
     const key = `pitchlive.following.${activeSession.creator_id}`;
     window.localStorage.setItem(key, "1");
   }, [isFollowingSeller, activeSession?.creator_id]);
+
+  useEffect(() => {
+    if (!activeSession?.creator_id || !isFollowingSeller) return;
+    void ensurePushSubscription().catch(() => undefined);
+  }, [activeSession?.creator_id, isFollowingSeller]);
 
   useEffect(() => {
     if (!activeSession || !env.agoraAppId) return;
