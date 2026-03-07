@@ -23,6 +23,16 @@ type FloatingHeart = {
 
 type IAgoraRTCClient = import("agora-rtc-sdk-ng").IAgoraRTCClient;
 
+function toStableAgoraUid(seed: string): number {
+  // Keep UID deterministic per viewer and inside uint32 positive range.
+  let hash = 2166136261;
+  for (let i = 0; i < seed.length; i += 1) {
+    hash ^= seed.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 1) || 1;
+}
+
 function enforcePlayerVideoStyle(containerId: string) {
   if (typeof window === "undefined") return;
 
@@ -107,6 +117,10 @@ export default function WatchPage() {
     window.localStorage.setItem(key, JSON.stringify(generated));
     return generated;
   }, []);
+
+  const viewerAgoraUid = useMemo(() => {
+    return toStableAgoraUid(viewerIdentity.id);
+  }, [viewerIdentity.id]);
 
   const addHeart = () => {
     const heart: FloatingHeart = {
@@ -340,26 +354,17 @@ export default function WatchPage() {
         await ensureRemotePlayback();
       });
 
-      // Keep a low stream variant available for unstable network conditions.
-      await activeRtc.enableDualStream();
-      await activeRtc.setLowStreamParameter({
-        width: 320,
-        height: 180,
-        framerate: 15,
-        bitrate: 140,
-      });
-
       const tokenRes = await fetch("/api/agora/token", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ channel: session.channel_name, role: "subscriber", uid: 0 }),
+        body: JSON.stringify({ channel: session.channel_name, role: "subscriber", uid: viewerAgoraUid }),
       });
       if (!tokenRes.ok) {
         throw new Error("Impossible de recuperer le token Agora pour ce spectateur.");
       }
       const tokenBody = (await tokenRes.json()) as { token?: string };
       await activeRtc.setClientRole("audience");
-      await activeRtc.join(env.agoraAppId, session.channel_name, tokenBody.token ?? null, null);
+      await activeRtc.join(env.agoraAppId, session.channel_name, tokenBody.token ?? null, viewerAgoraUid);
 
       // Fallback: subscribe to already-connected publishers if event timing was missed.
       await ensureRemotePlayback();
@@ -387,7 +392,7 @@ export default function WatchPage() {
       void rtc?.leave();
       setClient(null);
     };
-  }, [session?.id, session?.channel_name]);
+  }, [session?.id, session?.channel_name, viewerAgoraUid]);
 
   useEffect(() => {
     const supabase = getSupabase();
