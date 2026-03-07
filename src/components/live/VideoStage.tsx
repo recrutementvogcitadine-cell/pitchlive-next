@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { type MouseEvent, useMemo } from "react";
 
 type FloatingHeart = {
   id: string;
@@ -11,7 +11,7 @@ type FloatingHeart = {
 
 type Props = {
   floatingHearts: FloatingHeart[];
-  onStageTap: () => void;
+  onStageTap: (event: MouseEvent<HTMLElement>) => void;
   playerId?: string;
   children?: React.ReactNode;
 };

@@ -1,12 +1,10 @@
 "use client";
 
-import { Gift, Heart, MessageCircle, ShoppingBag, Users } from "lucide-react";
+import { Gift, MessageCircle, ShoppingBag, Users } from "lucide-react";
 
 type Props = {
-  likes: number;
   gifts: number;
   followers: number;
-  onLike: () => void;
   onGift: () => void;
   onFollow: () => void;
   onStore: () => void;
@@ -14,10 +12,8 @@ type Props = {
 };
 
 export default function ActionRail({
-  likes,
   gifts,
   followers,
-  onLike,
   onGift,
   onFollow,
   onStore,
@@ -32,10 +28,6 @@ export default function ActionRail({
       <button type="button" onClick={onWhatsApp} className="railButton" aria-label="Contacter sur WhatsApp">
         <MessageCircle size={22} />
         <span>WA</span>
-      </button>
-      <button type="button" onClick={onLike} className="railButton">
-        <Heart size={22} />
-        <span>{likes}</span>
       </button>
       <button type="button" onClick={onGift} className="railButton">
         <Gift size={22} />

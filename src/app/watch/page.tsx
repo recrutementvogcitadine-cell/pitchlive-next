@@ -4,11 +4,9 @@ import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import ActionRail from "@/components/live/ActionRail";
 import ChatOverlay from "@/components/live/ChatOverlay";
-import GiftTray from "@/components/live/GiftTray";
 import JoinTicker from "@/components/live/JoinTicker";
 import LiveHeader from "@/components/live/LiveHeader";
 import VideoStage from "@/components/live/VideoStage";
-import { useDoubleTap } from "@/hooks/useDoubleTap";
 import { useLiveSessions } from "@/hooks/useLiveSessions";
 import { env } from "@/lib/env";
 import { createClient } from "@/lib/supabase/client";
@@ -26,6 +24,13 @@ type FloatingHeart = {
 type JoinTickerItem = {
   id: string;
   name: string;
+};
+
+type FloatingRose = {
+  id: string;
+  left: number;
+  size: number;
+  drift: number;
 };
 
 type IAgoraRTCClient = import("agora-rtc-sdk-ng").IAgoraRTCClient;
@@ -110,10 +115,16 @@ export default function WatchPage() {
   const [isFollowingSeller, setIsFollowingSeller] = useState(false);
   const [joinTickerItems, setJoinTickerItems] = useState<JoinTickerItem[]>([]);
   const [audioUnlockRequired, setAudioUnlockRequired] = useState(false);
+  const [floatingRoses, setFloatingRoses] = useState<FloatingRose[]>([]);
+  const [giftSenderTag, setGiftSenderTag] = useState<string | null>(null);
+  const [milestoneBellVisible, setMilestoneBellVisible] = useState(false);
+  const [milestoneLikes, setMilestoneLikes] = useState(0);
 
   const feedRef = useRef<HTMLDivElement | null>(null);
   const scrollTickRef = useRef<number | null>(null);
   const resubscribeTimerRef = useRef<number | null>(null);
+  const stageTapTsRef = useRef(0);
+  const milestoneLevelRef = useRef(0);
   const supabaseRef = useRef<ReturnType<typeof createClient> | null>(null);
   const remoteAudioTracksRef = useRef<Map<string, import("agora-rtc-sdk-ng").IRemoteAudioTrack>>(new Map());
   const tokenCacheRef = useRef<Map<string, string>>(new Map());
@@ -266,6 +277,59 @@ export default function WatchPage() {
     }, 1000);
   };
 
+  const addRoseBurst = (sender: string) => {
+    const roses: FloatingRose[] = Array.from({ length: 9 }).map((_, idx) => ({
+      id: `${Date.now()}-${Math.random()}-${idx}`,
+      left: 44 + Math.random() * 28,
+      size: 18 + Math.random() * 18,
+      drift: -20 + Math.random() * 40,
+    }));
+    setFloatingRoses((prev) => [...prev, ...roses]);
+    setGiftSenderTag(`${sender} envoie des roses`);
+    window.setTimeout(() => setGiftSenderTag(null), 1800);
+    window.setTimeout(() => {
+      const roseIds = new Set(roses.map((rose) => rose.id));
+      setFloatingRoses((prev) => prev.filter((item) => !roseIds.has(item.id)));
+    }, 1500);
+  };
+
+  const triggerMilestoneFeedback = (threshold: number) => {
+    setMilestoneLikes(threshold);
+    setMilestoneBellVisible(true);
+    window.setTimeout(() => setMilestoneBellVisible(false), 2000);
+
+    if (typeof navigator !== "undefined" && typeof navigator.vibrate === "function") {
+      navigator.vibrate([120, 70, 150]);
+    }
+  };
+
+  const pushFollowerMilestoneNotification = async (threshold: number) => {
+    if (!activeSession?.creator_id) return;
+
+    const payload = {
+      creatorId: activeSession.creator_id,
+      sessionId: activeSession.id,
+      sellerName: sellerDisplayName,
+      threshold,
+      title: activeSession.title,
+      at: new Date().toISOString(),
+      sourceViewerId: viewerIdentity.id,
+    };
+
+    const supabase = getSupabase();
+    const channel = supabase.channel(`heart-milestones-${activeSession.creator_id}`);
+    await channel.subscribe();
+    await channel.send({ type: "broadcast", event: "heart_milestone", payload });
+    await supabase.removeChannel(channel);
+  };
+
+  const tapStageToLike = () => {
+    const now = Date.now();
+    if (now - stageTapTsRef.current < 120) return;
+    stageTapTsRef.current = now;
+    void sendLike();
+  };
+
   const sendLike = async () => {
     if (!activeSession) return;
     addHeart();
@@ -277,13 +341,10 @@ export default function WatchPage() {
     });
   };
 
-  const onDoubleTap = useDoubleTap(() => {
-    void sendLike();
-  });
-
   const sendGift = async (giftType: string) => {
     if (!activeSession) return;
     setGiftsCount((prev) => prev + 1);
+    addRoseBurst(viewerIdentity.username);
     const supabase = getSupabase();
     await supabase.from("gifts").insert({
       live_session_id: activeSession.id,
@@ -354,6 +415,7 @@ export default function WatchPage() {
 
       if (!mounted) return;
       setLikesCount(likes.count ?? 0);
+      milestoneLevelRef.current = Math.floor((likes.count ?? 0) / 200);
       setGiftsCount(gifts.count ?? 0);
       setFollowersCount(followers.count ?? 0);
     };
@@ -362,10 +424,14 @@ export default function WatchPage() {
 
     const channel = supabase
       .channel(`live-stats-${activeSession.id}`)
-      .on("postgres_changes", { event: "INSERT", schema: "public", table: "likes", filter: `live_session_id=eq.${activeSession.id}` }, () => {
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "likes", filter: `live_session_id=eq.${activeSession.id}` }, (payload) => {
+        const row = payload.new as { user_id?: string };
+        if (row.user_id && row.user_id === viewerIdentity.id) return;
         setLikesCount((prev) => prev + 1);
       })
-      .on("postgres_changes", { event: "INSERT", schema: "public", table: "gifts", filter: `live_session_id=eq.${activeSession.id}` }, () => {
+      .on("postgres_changes", { event: "INSERT", schema: "public", table: "gifts", filter: `live_session_id=eq.${activeSession.id}` }, (payload) => {
+        const row = payload.new as { user_id?: string };
+        if (row.user_id && row.user_id === viewerIdentity.id) return;
         setGiftsCount((prev) => prev + 1);
       })
       .subscribe();
@@ -374,7 +440,77 @@ export default function WatchPage() {
       mounted = false;
       void supabase.removeChannel(channel);
     };
-  }, [activeSession?.id, activeSession?.creator_id]);
+  }, [activeSession?.id, activeSession?.creator_id, viewerIdentity.id]);
+
+  useEffect(() => {
+    if (!activeSession?.id || !activeSession?.creator_id) return;
+    const nextLevel = Math.floor(likesCount / 200);
+    if (nextLevel <= 0 || nextLevel <= milestoneLevelRef.current) return;
+
+    const threshold = nextLevel * 200;
+    milestoneLevelRef.current = nextLevel;
+    triggerMilestoneFeedback(threshold);
+
+    setNotifyToast(`Palier ${threshold} coeurs atteint`);
+    window.setTimeout(() => setNotifyToast(null), 2200);
+
+    void pushFollowerMilestoneNotification(threshold).catch(() => undefined);
+  }, [likesCount, activeSession?.id, activeSession?.creator_id]);
+
+  useEffect(() => {
+    if (!activeSession?.creator_id) return;
+    const supabase = getSupabase();
+    const channel = supabase
+      .channel(`heart-milestones-${activeSession.creator_id}`)
+      .on("broadcast", { event: "heart_milestone" }, (payload) => {
+        const data = payload.payload as {
+          creatorId?: string;
+          threshold?: number;
+          sellerName?: string;
+          sourceViewerId?: string;
+        };
+
+        if (!data || data.creatorId !== activeSession.creator_id) return;
+        if (data.sourceViewerId === viewerIdentity.id) return;
+
+        const isFollower =
+          typeof window !== "undefined" && window.localStorage.getItem(`pitchlive.following.${activeSession.creator_id}`) === "1";
+        if (!isFollower) return;
+
+        const threshold = Number(data.threshold ?? 0);
+        if (threshold > 0) {
+          setMilestoneLikes(threshold);
+          setMilestoneBellVisible(true);
+          window.setTimeout(() => setMilestoneBellVisible(false), 2000);
+        }
+
+        const seller = data.sellerName || sellerDisplayName;
+        const message = `${seller} est en live (${threshold} coeurs)`;
+        setNotifyToast(message);
+        window.setTimeout(() => setNotifyToast(null), 2400);
+
+        if (typeof navigator !== "undefined" && typeof navigator.vibrate === "function") {
+          navigator.vibrate([90, 60, 120]);
+        }
+
+        if (typeof window !== "undefined" && "Notification" in window) {
+          if (Notification.permission === "granted") {
+            new Notification("PITCH LIVE", { body: message });
+          } else if (Notification.permission === "default") {
+            void Notification.requestPermission().then((permission) => {
+              if (permission === "granted") {
+                new Notification("PITCH LIVE", { body: message });
+              }
+            });
+          }
+        }
+      })
+      .subscribe();
+
+    return () => {
+      void supabase.removeChannel(channel);
+    };
+  }, [activeSession?.creator_id, viewerIdentity.id, sellerDisplayName]);
 
   useEffect(() => {
     if (!activeSession?.creator_id) return;
@@ -623,7 +759,15 @@ export default function WatchPage() {
             <VideoStage
               playerId={`agora-player-${session.id}`}
               floatingHearts={isActive ? floatingHearts : []}
-              onStageTap={isActive ? onDoubleTap : () => scrollToIndex(index)}
+              onStageTap={(event) => {
+                const target = event.target as HTMLElement | null;
+                if (target?.closest("button,a,input,textarea,label")) return;
+                if (isActive) {
+                  tapStageToLike();
+                } else {
+                  scrollToIndex(index);
+                }
+              }}
             >
               {isActive ? (
                 <>
@@ -638,21 +782,34 @@ export default function WatchPage() {
                     likes={likesCount}
                     viewers={session.viewers_count}
                     isFollowing={isFollowingSeller}
+                    milestoneBellVisible={milestoneBellVisible}
+                    milestoneLikes={milestoneLikes}
                     onFollow={() => void followCreator()}
                     onClose={closeLiveView}
                   />
                   <JoinTicker items={joinTickerItems} />
-                  <GiftTray onSendGift={(gift) => void sendGift(gift)} />
                   <ActionRail
-                    likes={likesCount}
                     gifts={giftsCount}
                     followers={followersCount}
-                    onLike={() => void sendLike()}
-                    onGift={() => void sendGift("spark")}
+                    onGift={() => void sendGift("rose")}
                     onFollow={() => void followCreator()}
                     onStore={openSellerStore}
                     onWhatsApp={openSellerWhatsApp}
                   />
+                  {giftSenderTag ? <div className="roseSenderTag">{giftSenderTag}</div> : null}
+                  {floatingRoses.map((rose) => (
+                    <span
+                      key={rose.id}
+                      className="floatingRose"
+                      style={{
+                        left: `${rose.left}%`,
+                        fontSize: `${rose.size}px`,
+                        ["--rose-drift" as string]: `${rose.drift}px`,
+                      }}
+                    >
+                      🌹
+                    </span>
+                  ))}
                   <ChatOverlay liveSessionId={session.id} username={viewerIdentity.username} />
                 </>
               ) : (

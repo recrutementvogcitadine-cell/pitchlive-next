@@ -1,8 +1,12 @@
+import { BellRing } from "lucide-react";
+
 type Props = {
   sellerName: string;
   likes: number;
   viewers: number;
   isFollowing: boolean;
+  milestoneBellVisible: boolean;
+  milestoneLikes: number;
   onFollow: () => void;
   onClose: () => void;
 };
@@ -17,7 +21,16 @@ function toCompactCount(value: number) {
   return value.toLocaleString("fr-FR");
 }
 
-export default function LiveHeader({ sellerName, likes, viewers, isFollowing, onFollow, onClose }: Props) {
+export default function LiveHeader({
+  sellerName,
+  likes,
+  viewers,
+  isFollowing,
+  milestoneBellVisible,
+  milestoneLikes,
+  onFollow,
+  onClose,
+}: Props) {
   return (
     <header className="liveHeader">
       <div className="sellerIdentityBlock">
@@ -28,7 +41,14 @@ export default function LiveHeader({ sellerName, likes, viewers, isFollowing, on
         />
         <div className="sellerMeta">
           <h1>{sellerName}</h1>
-          <p>{toCompactCount(likes)} coeurs</p>
+          <p className="sellerHeartsRow">
+            <span>{toCompactCount(likes)} coeurs</span>
+            {milestoneBellVisible ? (
+              <span className="milestoneBellBadge" title={`Palier ${milestoneLikes} coeurs`}>
+                <BellRing size={12} />
+              </span>
+            ) : null}
+          </p>
         </div>
       </div>
 
