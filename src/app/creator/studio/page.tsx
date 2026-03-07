@@ -495,11 +495,13 @@ export default function CreatorStudioPage() {
 
       let unpublishedOldTrack = false;
       try {
-        await activeClient.unpublish(previousTrack);
-        unpublishedOldTrack = true;
+        if (previousTrack) {
+          await activeClient.unpublish(previousTrack);
+          unpublishedOldTrack = true;
+        }
         await activeClient.publish(nextCameraTrack);
       } catch (publishError) {
-        if (unpublishedOldTrack) {
+        if (unpublishedOldTrack && previousTrack) {
           try {
             await activeClient.publish(previousTrack);
           } catch {
@@ -511,8 +513,10 @@ export default function CreatorStudioPage() {
         throw publishError;
       }
 
-      previousTrack.stop();
-      previousTrack.close();
+      if (previousTrack) {
+        previousTrack.stop();
+        previousTrack.close();
+      }
       camRef.current = nextCameraTrack;
 
       setCameraLabel(nextCamera.label || `Camera ${nextIndex + 1}`);
@@ -565,11 +569,13 @@ export default function CreatorStudioPage() {
 
       let unpublishedOldTrack = false;
       try {
-        await activeClient.unpublish(previousTrack);
-        unpublishedOldTrack = true;
+        if (previousTrack) {
+          await activeClient.unpublish(previousTrack);
+          unpublishedOldTrack = true;
+        }
         await activeClient.publish(nextCameraTrack);
       } catch (err) {
-        if (unpublishedOldTrack) {
+        if (unpublishedOldTrack && previousTrack) {
           try {
             await activeClient.publish(previousTrack);
           } catch {
@@ -581,8 +587,10 @@ export default function CreatorStudioPage() {
         throw err;
       }
 
-      previousTrack.stop();
-      previousTrack.close();
+      if (previousTrack) {
+        previousTrack.stop();
+        previousTrack.close();
+      }
       camRef.current = nextCameraTrack;
 
       setCameraLabel(picked.label || "Camera");
