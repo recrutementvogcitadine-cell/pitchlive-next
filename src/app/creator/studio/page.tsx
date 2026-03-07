@@ -331,6 +331,18 @@ export default function CreatorStudioPage() {
   useEffect(() => {
     if (typeof window === "undefined") return;
 
+    try {
+      const rawAccess = window.localStorage.getItem("pitchlive.access");
+      const access = rawAccess ? (JSON.parse(rawAccess) as { visitor?: boolean; seller?: boolean }) : null;
+      if (!access?.seller) {
+        window.location.href = "/mur";
+        return;
+      }
+    } catch {
+      window.location.href = "/login";
+      return;
+    }
+
     const loadSellerRegistration = () => {
       const rawRegistration = window.localStorage.getItem("pitchlive.seller.registration");
       if (!rawRegistration) {

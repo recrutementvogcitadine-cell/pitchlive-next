@@ -69,7 +69,7 @@ export default function LoginPage() {
               validatedBy: "admin",
             })
           );
-          window.location.href = "/creator/studio";
+          window.location.href = "/choix-mode";
           return;
         }
 
