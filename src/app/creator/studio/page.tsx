@@ -303,6 +303,7 @@ export default function CreatorStudioPage() {
   const micRef = useRef<IMicrophoneAudioTrack | null>(null);
   const preferredCameraIdRef = useRef<string | null>(null);
   const goLiveCountdownTimerRef = useRef<number | null>(null);
+  const countdownAudioContextRef = useRef<AudioContext | null>(null);
   const joinNoticeTimeoutRef = useRef<number | null>(null);
   const followersNoticeTimeoutRef = useRef<number | null>(null);
   const announceNoticeTimeoutRef = useRef<number | null>(null);
@@ -336,12 +337,52 @@ export default function CreatorStudioPage() {
     setGoLiveCountdown(null);
   };
 
+  const playCountdownBeep = (count: number) => {
+    if (typeof window === "undefined") return;
+
+    try {
+      const WinWithWebkitAudio = window as Window & {
+        webkitAudioContext?: typeof AudioContext;
+      };
+
+      const AudioCtor = window.AudioContext || WinWithWebkitAudio.webkitAudioContext;
+      if (!AudioCtor) return;
+
+      if (!countdownAudioContextRef.current || countdownAudioContextRef.current.state === "closed") {
+        countdownAudioContextRef.current = new AudioCtor();
+      }
+
+      const ctx = countdownAudioContextRef.current;
+      if (!ctx) return;
+      void ctx.resume();
+
+      const frequency = count === 3 ? 640 : count === 2 ? 780 : 940;
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+
+      osc.type = "triangle";
+      osc.frequency.setValueAtTime(frequency, ctx.currentTime);
+
+      gain.gain.setValueAtTime(0.0001, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.085, ctx.currentTime + 0.01);
+      gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.16);
+
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start();
+      osc.stop(ctx.currentTime + 0.18);
+    } catch {
+      // Audio feedback is best effort only.
+    }
+  };
+
   const beginGoLiveCountdown = () => {
     if (busy || isLive || !previewReady) return;
 
     clearGoLiveCountdown();
     let remaining = 3;
     setGoLiveCountdown(remaining);
+    playCountdownBeep(remaining);
 
     goLiveCountdownTimerRef.current = window.setInterval(() => {
       remaining -= 1;
@@ -351,6 +392,7 @@ export default function CreatorStudioPage() {
         return;
       }
       setGoLiveCountdown(remaining);
+      playCountdownBeep(remaining);
     }, 1000);
   };
 
@@ -566,6 +608,10 @@ export default function CreatorStudioPage() {
   useEffect(() => {
     return () => {
       clearGoLiveCountdown();
+
+      if (countdownAudioContextRef.current && countdownAudioContextRef.current.state !== "closed") {
+        void countdownAudioContextRef.current.close();
+      }
 
       if (joinNoticeTimeoutRef.current) {
         window.clearTimeout(joinNoticeTimeoutRef.current);
@@ -1708,11 +1754,12 @@ export default function CreatorStudioPage() {
           </div>
 
           {goLiveCountdown !== null ? (
-            <div className="absolute inset-0 z-[98] grid place-items-center bg-black/45">
-              <div className="flex h-44 w-44 items-center justify-center rounded-full border-4 border-white/65 bg-black/55 text-7xl font-black text-white shadow-2xl">
-                {goLiveCountdown}
+            <div className="absolute inset-0 z-[98] grid place-items-center bg-black/50 backdrop-blur-[1px]">
+              <div className="relative flex h-52 w-52 items-center justify-center rounded-full border-4 border-white/85 bg-gradient-to-b from-rose-500/90 to-red-700/90 text-8xl font-black text-white shadow-[0_0_60px_rgba(239,68,68,0.65)]">
+                <span className="absolute inline-flex h-full w-full animate-ping rounded-full border-4 border-white/35" />
+                <span className="relative drop-shadow-[0_0_12px_rgba(255,255,255,0.8)]">{goLiveCountdown}</span>
               </div>
-              <p className="absolute mt-64 rounded-full bg-black/55 px-4 py-2 text-sm font-semibold text-white">
+              <p className="absolute mt-72 rounded-full bg-black/60 px-4 py-2 text-sm font-semibold tracking-wide text-white">
                 Preparation du direct...
               </p>
             </div>
