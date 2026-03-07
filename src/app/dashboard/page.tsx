@@ -63,7 +63,8 @@ export default function DashboardPage() {
           <div className="flex gap-2">
             <Link href="/dashboard-login?redirect=/dashboard" className="rounded-full bg-slate-700 px-4 py-2 font-semibold">Login Dashboard</Link>
             <Link href="/watch" className="rounded-full bg-emerald-600 px-4 py-2 font-semibold">Watch</Link>
-            <Link href="/creator/studio" className="rounded-full bg-orange-500 px-4 py-2 font-semibold">Studio</Link>
+            <Link href="/creator/studio" className="rounded-full bg-orange-500 px-4 py-2 font-semibold">Studio vendeur</Link>
+            <Link href="/creator/settings" className="rounded-full bg-violet-600 px-4 py-2 font-semibold">Parametres vendeur</Link>
           </div>
         </header>
 
@@ -72,7 +73,7 @@ export default function DashboardPage() {
           <StatCard label="Messages" value={stats.totalMessages} />
           <StatCard label="Likes" value={stats.totalLikes} />
           <StatCard label="Cadeaux" value={stats.totalGifts} />
-          <StatCard label="Followers" value={stats.totalFollowers} />
+          <StatCard label="Abonnes vendeur" value={stats.totalFollowers} />
         </div>
 
         <article className="rounded-2xl border border-slate-700 bg-slate-900/70 p-4 md:p-5 grid gap-2 text-sm text-slate-300">

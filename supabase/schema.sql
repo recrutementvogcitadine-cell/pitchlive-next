@@ -62,6 +62,14 @@ create table if not exists public.live_presence (
   joined_at timestamptz not null default now()
 );
 
+create table if not exists public.seller_store_profiles (
+  seller_id text primary key,
+  store_name text not null,
+  tagline text not null,
+  whatsapp_number text not null,
+  updated_at timestamptz not null default now()
+);
+
 create index if not exists idx_messages_live_session on public.messages(live_session_id, created_at desc);
 create index if not exists idx_likes_live_session on public.likes(live_session_id, created_at desc);
 create index if not exists idx_gifts_live_session on public.gifts(live_session_id, created_at desc);
@@ -74,6 +82,7 @@ alter table public.likes enable row level security;
 alter table public.gifts enable row level security;
 alter table public.followers enable row level security;
 alter table public.live_presence enable row level security;
+alter table public.seller_store_profiles enable row level security;
 
 -- MVP open policies (tighten for production with auth checks)
 drop policy if exists users_all on public.users;
@@ -96,3 +105,6 @@ create policy followers_all on public.followers for all using (true) with check 
 
 drop policy if exists presence_all on public.live_presence;
 create policy presence_all on public.live_presence for all using (true) with check (true);
+
+drop policy if exists seller_profiles_all on public.seller_store_profiles;
+create policy seller_profiles_all on public.seller_store_profiles for all using (true) with check (true);

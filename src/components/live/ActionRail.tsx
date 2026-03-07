@@ -1,6 +1,6 @@
 "use client";
 
-import { Gift, Heart, Users } from "lucide-react";
+import { Gift, Heart, MessageCircle, ShoppingBag, Users } from "lucide-react";
 
 type Props = {
   likes: number;
@@ -9,11 +9,30 @@ type Props = {
   onLike: () => void;
   onGift: () => void;
   onFollow: () => void;
+  onStore: () => void;
+  onWhatsApp: () => void;
 };
 
-export default function ActionRail({ likes, gifts, followers, onLike, onGift, onFollow }: Props) {
+export default function ActionRail({
+  likes,
+  gifts,
+  followers,
+  onLike,
+  onGift,
+  onFollow,
+  onStore,
+  onWhatsApp,
+}: Props) {
   return (
     <aside className="actionRail">
+      <button type="button" onClick={onStore} className="railButton" aria-label="Ouvrir la boutique">
+        <ShoppingBag size={22} />
+        <span>Shop</span>
+      </button>
+      <button type="button" onClick={onWhatsApp} className="railButton" aria-label="Contacter sur WhatsApp">
+        <MessageCircle size={22} />
+        <span>WA</span>
+      </button>
       <button type="button" onClick={onLike} className="railButton">
         <Heart size={22} />
         <span>{likes}</span>

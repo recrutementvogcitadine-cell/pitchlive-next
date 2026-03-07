@@ -1,13 +1,236 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { env } from "@/lib/env";
 import { createClient } from "@/lib/supabase/client";
 
 type IAgoraRTCClient = import("agora-rtc-sdk-ng").IAgoraRTCClient;
 type ICameraVideoTrack = import("agora-rtc-sdk-ng").ICameraVideoTrack;
 type IMicrophoneAudioTrack = import("agora-rtc-sdk-ng").IMicrophoneAudioTrack;
+
+const CAMERA_PROFILE_KEY = "pitchlive.cameraProfile.v1";
+
+type CameraProfile = {
+  preferredCameraId?: string;
+  preferredCameraLabel?: string;
+  preferredFacing?: "environment" | "user";
+  beautyPreview: boolean;
+  showCameraGuides: boolean;
+  updatedAt: number;
+};
+
+function isMobileRuntime() {
+  if (typeof navigator === "undefined") return false;
+  return /android|iphone|ipad|ipod|mobile/i.test(navigator.userAgent);
+}
+
+function isRearCameraLabel(label: string) {
+  const l = (label || "").toLowerCase();
+  return (
+    l.includes("back") ||
+    l.includes("rear") ||
+    l.includes("environment") ||
+    l.includes("world") ||
+    l.includes("arriere")
+  );
+}
+
+function getEffectiveNetworkType(): string {
+  if (typeof navigator === "undefined") return "unknown";
+  const nav = navigator as Navigator & {
+    connection?: { effectiveType?: string };
+  };
+  return nav.connection?.effectiveType ?? "unknown";
+}
+
+function getVerticalEncoderConfig() {
+  const network = getEffectiveNetworkType();
+
+  // Favor quality while staying resilient on weaker mobile networks.
+  if (network === "2g" || network === "slow-2g") {
+    return {
+      width: 540,
+      height: 960,
+      frameRate: 24,
+      bitrateMax: 1200,
+      bitrateMin: 450,
+    };
+  }
+
+  if (network === "3g") {
+    return {
+      width: 720,
+      height: 1280,
+      frameRate: 24,
+      bitrateMax: 1800,
+      bitrateMin: 700,
+    };
+  }
+
+  if (isMobileRuntime()) {
+    // Mobile quality profile (TikTok-like) on decent connectivity.
+    return {
+      width: 720,
+      height: 1280,
+      frameRate: 30,
+      bitrateMax: 2500,
+      bitrateMin: 1000,
+    };
+  }
+
+  return {
+    width: 720,
+    height: 1280,
+    frameRate: 30,
+    bitrateMax: 2800,
+    bitrateMin: 1100,
+  };
+}
+
+async function applyCameraTrackTuning(cameraTrack: ICameraVideoTrack) {
+  try {
+    const mediaTrack = cameraTrack.getMediaStreamTrack?.();
+    if (!mediaTrack || typeof mediaTrack.getCapabilities !== "function") return;
+
+    const caps = mediaTrack.getCapabilities() as MediaTrackCapabilities & {
+      zoom?: { min?: number; max?: number };
+      focusMode?: string[];
+      exposureMode?: string[];
+    };
+
+    const advanced: Array<Record<string, unknown>> = [];
+
+    // Keep zoom at the minimum supported value to avoid over-cropped selfie framing.
+    if (caps.zoom?.min !== undefined) {
+      advanced.push({ zoom: caps.zoom.min });
+    }
+
+    if (Array.isArray(caps.focusMode) && caps.focusMode.includes("continuous")) {
+      advanced.push({ focusMode: "continuous" });
+    }
+
+    if (Array.isArray(caps.exposureMode) && caps.exposureMode.includes("continuous")) {
+      advanced.push({ exposureMode: "continuous" });
+    }
+
+    if (advanced.length) {
+      await mediaTrack.applyConstraints({
+        advanced: advanced as unknown as MediaTrackConstraintSet[],
+      });
+    }
+  } catch {
+    // Best-effort tuning: safely ignore on unsupported browsers/devices.
+  }
+}
+
+function readCameraProfile(): CameraProfile | null {
+  if (typeof window === "undefined") return null;
+
+  try {
+    const raw = window.localStorage.getItem(CAMERA_PROFILE_KEY);
+    if (!raw) return null;
+    return JSON.parse(raw) as CameraProfile;
+  } catch {
+    return null;
+  }
+}
+
+function writeCameraProfile(profile: CameraProfile) {
+  if (typeof window === "undefined") return;
+
+  try {
+    window.localStorage.setItem(CAMERA_PROFILE_KEY, JSON.stringify(profile));
+  } catch {
+    // Ignore write errors in restricted storage contexts.
+  }
+}
+
+function clearCameraProfile() {
+  if (typeof window === "undefined") return;
+
+  try {
+    window.localStorage.removeItem(CAMERA_PROFILE_KEY);
+  } catch {
+    // Ignore clear errors in restricted storage contexts.
+  }
+}
+
+function formatLiveError(error: unknown): string {
+  const text = String(error);
+  const normalized = text.toLowerCase();
+
+  if (
+    normalized.includes("permission_denied") ||
+    normalized.includes("notallowederror") ||
+    normalized.includes("permission denied")
+  ) {
+    return "Acces refuse a la camera/micro. Autorise camera + micro pour ce site puis recharge la page.";
+  }
+
+  if (normalized.includes("notfounderror") || normalized.includes("devices not found")) {
+    return "Camera ou micro introuvable. Verifie qu'un peripherique audio/video est bien connecte.";
+  }
+
+  if (normalized.includes("overconstrainederror") || normalized.includes("constraint")) {
+    return "Le navigateur ne peut pas appliquer ce reglage camera. Essaie de changer de camera.";
+  }
+
+  return text;
+}
+
+function enforcePreviewVideoStyle(containerId: string) {
+  if (typeof window === "undefined") return;
+
+  let raf = 0;
+  let ticks = 0;
+  let timeoutId: number | undefined;
+  let pendingMetadataHandler: (() => void) | null = null;
+
+  const apply = () => {
+    const container = document.getElementById(containerId);
+    const video = container?.querySelector("video") as HTMLVideoElement | null;
+    if (!video) return;
+
+    video.style.objectFit = "cover";
+    video.style.objectPosition = "center center";
+    video.style.transform = "scaleX(1)";
+
+    if (!pendingMetadataHandler) {
+      pendingMetadataHandler = () => {
+        video.style.objectFit = "cover";
+        video.style.objectPosition = "center center";
+        video.style.transform = "scaleX(1)";
+      };
+      video.onloadedmetadata = pendingMetadataHandler;
+    }
+  };
+
+  const loop = () => {
+    apply();
+    ticks += 1;
+    if (ticks < 20) {
+      raf = window.requestAnimationFrame(loop);
+    }
+  };
+
+  apply();
+  raf = window.requestAnimationFrame(loop);
+  timeoutId = window.setTimeout(() => {
+    if (raf) window.cancelAnimationFrame(raf);
+  }, 1200);
+
+  return () => {
+    if (raf) window.cancelAnimationFrame(raf);
+    if (timeoutId) window.clearTimeout(timeoutId);
+
+    const container = document.getElementById(containerId);
+    const video = container?.querySelector("video") as HTMLVideoElement | null;
+    if (video && video.onloadedmetadata === pendingMetadataHandler) {
+      video.onloadedmetadata = null;
+    }
+  };
+}
 
 export default function CreatorStudioPage() {
   const supabase = useMemo(() => createClient(), []);
@@ -17,12 +240,116 @@ export default function CreatorStudioPage() {
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [viewersCount, setViewersCount] = useState(0);
+  const [cameraLabel, setCameraLabel] = useState("Auto");
+  const [cameraFacing, setCameraFacing] = useState<"environment" | "user">("environment");
+  const [beautyPreview, setBeautyPreview] = useState(true);
+  const [showCameraGuides, setShowCameraGuides] = useState(false);
+  const [profileInfo, setProfileInfo] = useState<string | null>(null);
 
   const clientRef = useRef<IAgoraRTCClient | null>(null);
   const camRef = useRef<ICameraVideoTrack | null>(null);
   const micRef = useRef<IMicrophoneAudioTrack | null>(null);
+  const preferredCameraIdRef = useRef<string | null>(null);
 
   const creatorId = "main-creator";
+
+  useEffect(() => {
+    const profile = readCameraProfile();
+    if (!profile) return;
+
+    setBeautyPreview(profile.beautyPreview);
+    setShowCameraGuides(profile.showCameraGuides);
+    if (profile.preferredCameraId) {
+      preferredCameraIdRef.current = profile.preferredCameraId;
+    }
+    if (profile.preferredCameraLabel) {
+      setCameraLabel(profile.preferredCameraLabel);
+    }
+    if (profile.preferredFacing) {
+      setCameraFacing(profile.preferredFacing);
+    }
+    setProfileInfo("Profil camera charge");
+    window.setTimeout(() => setProfileInfo(null), 1800);
+  }, []);
+
+  const saveCameraProfile = (cameraId?: string, cameraName?: string) => {
+    const profile: CameraProfile = {
+      preferredCameraId: cameraId ?? preferredCameraIdRef.current ?? undefined,
+      preferredCameraLabel: cameraName ?? cameraLabel,
+      preferredFacing: cameraFacing,
+      beautyPreview,
+      showCameraGuides,
+      updatedAt: Date.now(),
+    };
+
+    writeCameraProfile(profile);
+    if (profile.preferredCameraId) {
+      preferredCameraIdRef.current = profile.preferredCameraId;
+    }
+
+    setProfileInfo("Profil camera sauvegarde");
+    window.setTimeout(() => setProfileInfo(null), 1800);
+  };
+
+  const resetCameraProfile = () => {
+    clearCameraProfile();
+    preferredCameraIdRef.current = null;
+    setCameraLabel("Auto");
+    setCameraFacing("environment");
+    setBeautyPreview(true);
+    setShowCameraGuides(false);
+    setProfileInfo("Profil camera reinitialise");
+    window.setTimeout(() => setProfileInfo(null), 1800);
+  };
+
+  const choosePreferredCameraId = async (
+    AgoraRTC: typeof import("agora-rtc-sdk-ng").default,
+    facingPreference: "environment" | "user"
+  ) => {
+    const cameras = (await AgoraRTC.getCameras()) as Array<{ deviceId: string; label: string }>;
+    if (!cameras.length) return undefined;
+
+    const rearCameras = cameras.filter((camera) => isRearCameraLabel(camera.label));
+    const frontCameras = cameras.filter((camera) => !isRearCameraLabel(camera.label));
+
+    const candidates =
+      facingPreference === "environment"
+        ? rearCameras.length
+          ? rearCameras
+          : cameras
+        : frontCameras.length
+        ? frontCameras
+        : cameras;
+
+    const rememberedId = preferredCameraIdRef.current;
+    if (rememberedId) {
+      const remembered = candidates.find((camera) => camera.deviceId === rememberedId);
+      if (remembered) {
+        setCameraLabel(remembered.label || "Camera");
+        return remembered.deviceId;
+      }
+    }
+
+    // Rear-camera lock: prefer back camera, avoid ultra-wide/tele where possible.
+    const ranked = [...candidates].sort((a, b) => {
+      const score = (label: string) => {
+        const l = (label || "").toLowerCase();
+        let s = 0;
+
+        if (l.includes("back") || l.includes("rear") || l.includes("environment")) s -= 20;
+        if (l.includes("ultra") || l.includes("wide") || l.includes("0.5") || l.includes("fisheye")) s += 10;
+        if (l.includes("tele") || l.includes("zoom")) s += 8;
+        if (l.includes("main") || l.includes("normal") || l.includes("1x")) s -= 3;
+
+        return s;
+      };
+      return score(a.label) - score(b.label);
+    });
+
+    const picked = ranked[0];
+    setCameraLabel(picked.label || "Camera");
+    return picked.deviceId;
+  };
 
   const startLive = async () => {
     if (!env.agoraAppId) {
@@ -34,7 +361,17 @@ export default function CreatorStudioPage() {
     setError(null);
 
     try {
+      if (!window.isSecureContext) {
+        setError("Le live camera/micro exige HTTPS (ou localhost en local). Ouvre l'app sur https://www.pitchci.com.");
+        return;
+      }
+
+      // Ask browser permissions first to fail fast with a clear message.
+      const mediaStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+      mediaStream.getTracks().forEach((track) => track.stop());
+
       const AgoraRTC = (await import("agora-rtc-sdk-ng")).default;
+      const preferredCameraId = await choosePreferredCameraId(AgoraRTC, cameraFacing);
       const response = await fetch("/api/live/start", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -42,8 +379,18 @@ export default function CreatorStudioPage() {
       });
       const body = (await response.json()) as { sessionId: string; channelName: string; token: string };
 
-      const rtc = AgoraRTC.createClient({ mode: "live", codec: "vp8" });
+      // Use H264 for better interoperability on mobile Safari and older devices.
+      const rtc = AgoraRTC.createClient({ mode: "live", codec: "h264" });
       clientRef.current = rtc;
+
+      // Enable dual stream so Agora can adapt better to network fluctuations.
+      await rtc.enableDualStream();
+      await rtc.setLowStreamParameter({
+        width: 320,
+        height: 180,
+        framerate: 15,
+        bitrate: 140,
+      });
 
       await rtc.setClientRole("host");
       await rtc.join(env.agoraAppId, body.channelName, body.token, null);
@@ -55,19 +402,18 @@ export default function CreatorStudioPage() {
           ANS: true,
         },
         {
-          encoderConfig: {
-            width: 720,
-            height: 1280,
-            frameRate: 30,
-            bitrateMax: 1500,
-            bitrateMin: 600,
-          },
-          optimizationMode: "motion",
+          cameraId: preferredCameraId,
+          facingMode: cameraFacing,
+          encoderConfig: getVerticalEncoderConfig(),
+          optimizationMode: "detail",
         }
       );
 
-      // Keep camera centered and avoid mirrored output for spectators.
+      await applyCameraTrackTuning(cameraTrack);
+
+      // Disable mirror so left/right movement matches what creators expect.
       cameraTrack.play("creator-preview", { fit: "cover", mirror: false });
+      const cleanupPreviewStyle = enforcePreviewVideoStyle("creator-preview");
 
       camRef.current = cameraTrack;
       micRef.current = microphoneTrack;
@@ -76,6 +422,10 @@ export default function CreatorStudioPage() {
 
       setSessionId(body.sessionId);
       setIsLive(true);
+      if (preferredCameraId) {
+        preferredCameraIdRef.current = preferredCameraId;
+      }
+      saveCameraProfile(preferredCameraId, cameraLabel);
 
       const interval = window.setInterval(async () => {
         const { count } = await supabase
@@ -86,8 +436,91 @@ export default function CreatorStudioPage() {
       }, 3000);
 
       (window as unknown as { __viewerInterval?: number }).__viewerInterval = interval;
+
+      // Clear temporary style-enforcement loop after startup stabilization.
+      window.setTimeout(() => {
+        cleanupPreviewStyle?.();
+      }, 1400);
     } catch (err) {
-      setError(String(err));
+      setError(formatLiveError(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const switchCamera = async () => {
+    if (!isLive || !camRef.current || !clientRef.current) return;
+
+    setBusy(true);
+
+    try {
+      const AgoraRTC = (await import("agora-rtc-sdk-ng")).default;
+      const cameras = (await AgoraRTC.getCameras()) as Array<{ deviceId: string; label: string }>;
+      const rearCameras = cameras.filter((camera) => isRearCameraLabel(camera.label));
+      const frontCameras = cameras.filter((camera) => !isRearCameraLabel(camera.label));
+
+      const candidates =
+        cameraFacing === "environment" ? (rearCameras.length ? rearCameras : cameras) : frontCameras.length ? frontCameras : cameras;
+
+      if (candidates.length < 2) {
+        setError(
+          cameraFacing === "environment"
+            ? "Camera arriere verrouillee: une seule camera arriere detectee."
+            : "Camera frontale verrouillee: une seule camera frontale detectee."
+        );
+        return;
+      }
+
+      const activeClient = clientRef.current;
+      const currentCameraId = preferredCameraIdRef.current;
+      const currentLabel = (cameraLabel || "").toLowerCase();
+      const currentIndex =
+        candidates.findIndex((camera) => camera.deviceId === currentCameraId) >= 0
+          ? candidates.findIndex((camera) => camera.deviceId === currentCameraId)
+          : candidates.findIndex((camera) => (camera.label || "").toLowerCase() === currentLabel);
+      const nextIndex = currentIndex >= 0 ? (currentIndex + 1) % candidates.length : 0;
+      const nextCamera = candidates[nextIndex];
+      const previousTrack = camRef.current;
+
+      const nextCameraTrack = await AgoraRTC.createCameraVideoTrack({
+        cameraId: nextCamera.deviceId,
+        facingMode: cameraFacing,
+        encoderConfig: getVerticalEncoderConfig(),
+        optimizationMode: "detail",
+      });
+
+      await applyCameraTrackTuning(nextCameraTrack);
+      nextCameraTrack.play("creator-preview", { fit: "cover", mirror: false });
+      enforcePreviewVideoStyle("creator-preview");
+
+      let unpublishedOldTrack = false;
+      try {
+        await activeClient.unpublish(previousTrack);
+        unpublishedOldTrack = true;
+        await activeClient.publish(nextCameraTrack);
+      } catch (publishError) {
+        if (unpublishedOldTrack) {
+          try {
+            await activeClient.publish(previousTrack);
+          } catch {
+            // Keep original error context.
+          }
+        }
+        nextCameraTrack.stop();
+        nextCameraTrack.close();
+        throw publishError;
+      }
+
+      previousTrack.stop();
+      previousTrack.close();
+      camRef.current = nextCameraTrack;
+
+      setCameraLabel(nextCamera.label || `Camera ${nextIndex + 1}`);
+      preferredCameraIdRef.current = nextCamera.deviceId;
+      saveCameraProfile(nextCamera.deviceId, nextCamera.label || `Camera ${nextIndex + 1}`);
+      setError(null);
+    } catch (err) {
+      setError(formatLiveError(err));
     } finally {
       setBusy(false);
     }
@@ -122,7 +555,7 @@ export default function CreatorStudioPage() {
       setSessionId(null);
       setViewersCount(0);
     } catch (err) {
-      setError(String(err));
+      setError(formatLiveError(err));
     } finally {
       setBusy(false);
     }
@@ -132,13 +565,52 @@ export default function CreatorStudioPage() {
     <main className="min-h-screen bg-slate-950 text-slate-50 px-4 py-6 md:p-8">
       <section className="mx-auto max-w-4xl grid gap-4">
         <div className="flex items-center justify-between flex-wrap gap-3">
-          <h1 className="text-2xl md:text-3xl font-bold">Creator Studio</h1>
-          <Link href="/watch" className="rounded-full bg-emerald-600 px-4 py-2 font-semibold">
-            Voir le live public
-          </Link>
+          <h1 className="text-2xl md:text-3xl font-bold">Studio Vendeur</h1>
+          <div className="flex gap-2">
+            <Link href="/creator/settings" className="rounded-full bg-slate-700 px-4 py-2 font-semibold">
+              Parametres vendeur
+            </Link>
+            <Link href="/watch" className="rounded-full bg-emerald-600 px-4 py-2 font-semibold">
+              Voir le live public
+            </Link>
+          </div>
         </div>
 
         <article className="rounded-2xl border border-slate-700 bg-slate-900/70 p-4 md:p-5 grid gap-3">
+          <div className="rounded-xl border border-violet-500/35 bg-violet-900/15 p-3 md:p-4 grid gap-2">
+            <h2 className="text-sm md:text-base font-bold text-violet-100">Parametres camera</h2>
+            <div className="text-xs md:text-sm text-violet-100/90 grid gap-1">
+              <p>Camera active: <strong>{cameraLabel || "Auto"}</strong></p>
+              <p>Mode camera: <strong>ARRIERE VERROUILLEE</strong></p>
+              <p>Format live: <strong>9:16 vertical</strong></p>
+              <p>Miroir audience: <strong>OFF</strong> (orientation normale)</p>
+              <p>Optimisation mobile: <strong>ON</strong> (cadrage stable, anti-zoom)</p>
+            </div>
+            <div className="flex flex-wrap gap-2 pt-1">
+              <button
+                type="button"
+                onClick={() => saveCameraProfile()}
+                className="rounded-lg border border-violet-400/60 bg-violet-800/35 px-3 py-2 text-xs md:text-sm font-semibold"
+              >
+                Sauver profil camera
+              </button>
+              <button
+                type="button"
+                onClick={resetCameraProfile}
+                className="rounded-lg border border-slate-500/70 bg-slate-800/60 px-3 py-2 text-xs md:text-sm font-semibold"
+              >
+                Reinitialiser profil
+              </button>
+              <button
+                type="button"
+                onClick={() => setCameraFacing((prev) => (prev === "environment" ? "user" : "environment"))}
+                className="rounded-lg border border-sky-400/60 bg-sky-800/25 px-3 py-2 text-xs md:text-sm font-semibold"
+              >
+                Caméra: {cameraFacing === "environment" ? "ARRIÈRE" : "AVANT"}
+              </button>
+            </div>
+          </div>
+
           <label className="grid gap-1 text-sm">
             Titre du live
             <input
@@ -168,21 +640,97 @@ export default function CreatorStudioPage() {
             </button>
           </div>
 
+          <button
+            type="button"
+            onClick={() => void switchCamera()}
+            disabled={!isLive || busy}
+            className="rounded-xl border border-slate-500 bg-slate-800 px-4 py-3 font-semibold disabled:opacity-50"
+          >
+            Changer camera arriere ({cameraLabel || "Auto"})
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              setBeautyPreview((prev) => {
+                const next = !prev;
+                const cameraProfile: CameraProfile = {
+                  preferredCameraId: preferredCameraIdRef.current ?? undefined,
+                  preferredCameraLabel: cameraLabel,
+                  beautyPreview: next,
+                  showCameraGuides,
+                  updatedAt: Date.now(),
+                };
+                writeCameraProfile(cameraProfile);
+                return next;
+              });
+            }}
+            className="rounded-xl border border-emerald-500/60 bg-emerald-900/20 px-4 py-3 font-semibold"
+          >
+            {beautyPreview ? "Beaute legere: ON" : "Beaute legere: OFF"}
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              setShowCameraGuides((prev) => {
+                const next = !prev;
+                const cameraProfile: CameraProfile = {
+                  preferredCameraId: preferredCameraIdRef.current ?? undefined,
+                  preferredCameraLabel: cameraLabel,
+                  beautyPreview,
+                  showCameraGuides: next,
+                  updatedAt: Date.now(),
+                };
+                writeCameraProfile(cameraProfile);
+                return next;
+              });
+            }}
+            className="rounded-xl border border-sky-500/60 bg-sky-900/20 px-4 py-3 font-semibold"
+          >
+            {showCameraGuides ? "Guides cadrage: ON" : "Guides cadrage: OFF"}
+          </button>
+
           <div className="text-sm text-slate-300">
             Etat: <strong>{isLive ? "En direct" : "Hors ligne"}</strong> • Spectateurs connectes: {viewersCount}
           </div>
 
           {error ? <p className="text-sm text-red-300">Erreur: {error}</p> : null}
+          {profileInfo ? <p className="text-sm text-violet-200">{profileInfo}</p> : null}
         </article>
 
         <article className="rounded-2xl border border-slate-700 bg-slate-900/70 p-4 md:p-5">
           <h2 className="font-semibold mb-2">Apercu camera vertical</h2>
           <div className="relative w-full max-w-sm mx-auto aspect-[9/16] rounded-2xl overflow-hidden border border-slate-700 bg-slate-800">
-            <div id="creator-preview" className="absolute inset-0" />
+            <div
+              id="creator-preview"
+              className="absolute inset-0"
+              style={{
+                filter: beautyPreview ? "brightness(1.05) contrast(1.06) saturate(1.08)" : "none",
+              }}
+            />
+            {showCameraGuides ? (
+              <div className="pointer-events-none absolute inset-0 z-10">
+                <div className="absolute inset-0 border-2 border-sky-300/70 rounded-2xl" />
+
+                <div className="absolute left-1/2 top-0 bottom-0 w-px -translate-x-1/2 bg-sky-300/60" />
+
+                <div className="absolute left-0 right-0 top-1/3 h-px bg-sky-300/40" />
+                <div className="absolute left-0 right-0 top-2/3 h-px bg-sky-300/40" />
+
+                <div className="absolute left-1/2 top-[21%] w-[42%] max-w-[210px] aspect-square -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-amber-300/75" />
+                <div className="absolute left-1/2 top-[62%] w-[70%] max-w-[280px] h-[42%] -translate-x-1/2 -translate-y-1/2 rounded-[40%] border border-amber-300/45" />
+              </div>
+            ) : null}
           </div>
           <p className="text-xs text-slate-400 mt-2">
-            Reglages anti-zoom et anti-miroir actifs pour un rendu stable et naturel.
+            Rendu vertical optimise (9:16), anti-zoom agressif, switch camera et preset beaute legere.
           </p>
+          {showCameraGuides ? (
+            <p className="text-xs text-sky-200/85 mt-1">
+              Guide actif: place les yeux autour de la ligne du tiers haut et garde le visage dans le cercle pour un rendu type TikTok/Instagram.
+            </p>
+          ) : null}
         </article>
       </section>
     </main>
