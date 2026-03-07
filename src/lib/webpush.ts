@@ -5,15 +5,20 @@ let configured = false;
 export function configureWebPush() {
   if (configured) return true;
 
-  const publicKey = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY;
-  const privateKey = process.env.WEB_PUSH_VAPID_PRIVATE_KEY;
-  const subject = process.env.WEB_PUSH_VAPID_SUBJECT || "mailto:support@pitchci.com";
+  const publicKey = (process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY ?? "").trim();
+  const privateKey = (process.env.WEB_PUSH_VAPID_PRIVATE_KEY ?? "").trim();
+  const subject = (process.env.WEB_PUSH_VAPID_SUBJECT ?? "mailto:support@pitchci.com").trim();
 
   if (!publicKey || !privateKey) {
     return false;
   }
 
-  webpush.setVapidDetails(subject, publicKey, privateKey);
+  try {
+    webpush.setVapidDetails(subject, publicKey, privateKey);
+  } catch {
+    return false;
+  }
+
   configured = true;
   return true;
 }

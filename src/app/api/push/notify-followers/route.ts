@@ -21,10 +21,6 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: "service role missing" }, { status: 503 });
   }
 
-  if (!configureWebPush()) {
-    return NextResponse.json({ ok: false, error: "vapid env missing" }, { status: 503 });
-  }
-
   const body = (await req.json()) as Body;
   const creatorId = (body.creatorId ?? "").trim();
   const sessionId = (body.sessionId ?? "").trim();
@@ -49,6 +45,10 @@ export async function POST(req: Request) {
 
   if (!session) {
     return NextResponse.json({ ok: false, error: "session not live" }, { status: 409 });
+  }
+
+  if (!configureWebPush()) {
+    return NextResponse.json({ ok: false, error: "vapid env missing" }, { status: 503 });
   }
 
   const { data: followers, error: followersError } = await supabase
