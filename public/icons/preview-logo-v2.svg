@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="bg2" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#ff2a2a"/>
+      <stop offset="100%" stop-color="#cc0000"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="50%" cy="30%" r="70%">
+      <stop offset="0%" stop-color="#ff6b6b" stop-opacity="0.8"/>
+      <stop offset="100%" stop-color="#ff6b6b" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="core" cx="50%" cy="38%" r="62%">
+      <stop offset="0%" stop-color="#1e293b"/>
+      <stop offset="100%" stop-color="#020617"/>
+    </radialGradient>
+  </defs>
+
+  <rect x="18" y="18" width="476" height="476" rx="110" fill="url(#bg2)"/>
+  <rect x="18" y="18" width="476" height="476" rx="110" fill="url(#glow)"/>
+
+  <circle cx="256" cy="246" r="156" fill="url(#core)"/>
+  <circle cx="256" cy="246" r="156" fill="none" stroke="#ff6b6b" stroke-opacity="0.65" stroke-width="6"/>
+
+  <rect x="172" y="104" width="168" height="52" rx="18" fill="#ff1f1f"/>
+  <circle cx="196" cy="130" r="9" fill="#ffffff"/>
+  <text x="256" y="138" text-anchor="middle" fill="#ffffff" font-size="27" font-family="Arial, sans-serif" font-weight="800" letter-spacing="1.6">LIVE</text>
+
+  <text x="256" y="280" text-anchor="middle" fill="#ffffff" font-size="90" font-family="Arial, sans-serif" font-weight="900" letter-spacing="2">PITCH</text>
+
+  <circle cx="366" cy="348" r="64" fill="#020617" stroke="#ffffff" stroke-width="8"/>
+  <rect x="332" y="326" width="42" height="30" rx="6" fill="#ffffff"/>
+  <circle cx="350" cy="341" r="7" fill="#020617"/>
+  <polygon points="374,332 395,322 395,360 374,350" fill="#ffffff"/>
+</svg>
