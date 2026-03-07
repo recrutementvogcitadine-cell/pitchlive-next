@@ -714,9 +714,16 @@ export default function CreatorStudioPage() {
       await clientRef.current?.leave();
       clientRef.current = null;
 
-      // Keep preview available after stopping the live.
-      if (camRef.current) {
-        camRef.current.play("creator-preview", { fit: "contain", mirror: false });
+      camRef.current?.stop();
+      micRef.current?.stop();
+      camRef.current?.close();
+      micRef.current?.close();
+      camRef.current = null;
+      micRef.current = null;
+
+      const previewContainer = document.getElementById("creator-preview");
+      if (previewContainer) {
+        previewContainer.innerHTML = "";
       }
 
       const holder = window as unknown as { __viewerInterval?: number };
@@ -728,7 +735,9 @@ export default function CreatorStudioPage() {
       setIsLive(false);
       setSessionId(null);
       setViewersCount(0);
-      setPreviewReady(Boolean(camRef.current && micRef.current));
+      setPreviewReady(false);
+      setCameraEnabled(true);
+      setMicrophoneEnabled(true);
     } catch (err) {
       setError(formatLiveError(err));
     } finally {
