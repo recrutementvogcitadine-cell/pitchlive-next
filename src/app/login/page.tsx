@@ -135,6 +135,19 @@ export default function LoginPage() {
     }
   };
 
+  const enterVisitorFreeMode = () => {
+    const guestProfile = {
+      id: `guest-${Date.now()}`,
+      username: `visiteur_${Math.random().toString(36).slice(2, 7)}`,
+      status: "free-entry",
+      role: "visitor",
+    };
+
+    window.localStorage.setItem("pitchlive.viewer", JSON.stringify(guestProfile));
+    window.localStorage.setItem("pitchlive.access", JSON.stringify({ visitor: true, seller: false }));
+    window.location.href = "/watch";
+  };
+
   return (
     <main className="min-h-screen bg-slate-950 text-slate-50 px-4 py-8 md:p-10">
       <section className="mx-auto max-w-xl grid gap-5">
@@ -180,6 +193,20 @@ export default function LoginPage() {
           </button>
 
           {error ? <p className="text-sm text-red-300">Erreur: {error}</p> : null}
+        </article>
+
+        <article className="rounded-2xl border border-emerald-500/50 bg-emerald-900/15 p-4 md:p-6 grid gap-3">
+          <h2 className="text-base font-bold text-emerald-100">Entree libre visiteur</h2>
+          <p className="text-sm text-emerald-100/90">
+            Acces direct sans inscription pour voir uniquement les lives et les produits.
+          </p>
+          <button
+            type="button"
+            onClick={enterVisitorFreeMode}
+            className="rounded-xl bg-emerald-600 px-4 py-3 font-bold"
+          >
+            Entrer librement (Live + Produits)
+          </button>
         </article>
       </section>
     </main>

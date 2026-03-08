@@ -35,6 +35,13 @@ type FloatingRose = {
 
 type IAgoraRTCClient = import("agora-rtc-sdk-ng").IAgoraRTCClient;
 
+type ViewerProfile = {
+  id: string;
+  username: string;
+  status?: string;
+  role?: string;
+};
+
 function toStableAgoraUid(seed: string): number {
   let hash = 2166136261;
   for (let i = 0; i < seed.length; i += 1) {
@@ -156,6 +163,18 @@ export default function WatchPage() {
     window.localStorage.setItem(key, JSON.stringify(generated));
     return generated;
   }, []);
+
+  const canOrderOnWhatsapp = useMemo(() => {
+    if (typeof window === "undefined") return false;
+    try {
+      const raw = window.localStorage.getItem("pitchlive.viewer");
+      if (!raw) return false;
+      const viewer = JSON.parse(raw) as ViewerProfile;
+      return viewer.status === "validated";
+    } catch {
+      return false;
+    }
+  }, [viewerIdentity.id]);
 
   const activeSession: LiveSession | null = sessions[activeIndex] ?? null;
   const activePlayerId = activeSession ? `agora-player-${activeSession.id}` : "agora-player";
@@ -399,6 +418,12 @@ export default function WatchPage() {
   };
 
   const openSellerWhatsApp = () => {
+    if (!canOrderOnWhatsapp) {
+      setNotifyToast("Commande WhatsApp reservee aux visiteurs certifies.");
+      window.setTimeout(() => setNotifyToast(null), 2200);
+      return;
+    }
+
     const candidate = sellerWhatsapp || env.sellerWhatsapp;
     if (!candidate) {
       setNotifyToast("WhatsApp vendeur non configure.");
@@ -726,7 +751,7 @@ export default function WatchPage() {
         <div>
           <h2>Aucun live en cours</h2>
           <p>Le vendeur principal n'est pas encore en direct.</p>
-          <Link href="/creator/studio">Lancer un live vendeur maintenant</Link>
+          <Link href="/vendeur/inscription">S'inscrire comme vendeur pour lancer un live</Link>
         </div>
       </main>
     );

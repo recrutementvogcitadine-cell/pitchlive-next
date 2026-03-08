@@ -11,6 +11,11 @@ import {
   type SellerStoreProfile,
 } from "@/lib/boutique-data";
 
+  type ViewerProfile = {
+    id: string;
+    status?: string;
+  };
+
 function formatXof(value: number) {
   return new Intl.NumberFormat("fr-FR").format(value);
 }
@@ -27,6 +32,7 @@ export default function SellerBoutiquePage() {
 
   const store = useMemo(() => getSellerStoreById(sellerId), [sellerId]);
   const [profile, setProfile] = useState<SellerStoreProfile | null>(null);
+  const [canOrderOnWhatsapp, setCanOrderOnWhatsapp] = useState(false);
 
   useEffect(() => {
     let mounted = true;
@@ -53,6 +59,21 @@ export default function SellerBoutiquePage() {
       mounted = false;
     };
   }, [sellerId]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      const raw = window.localStorage.getItem("pitchlive.viewer");
+      if (!raw) {
+        setCanOrderOnWhatsapp(false);
+        return;
+      }
+      const viewer = JSON.parse(raw) as ViewerProfile;
+      setCanOrderOnWhatsapp(viewer.status === "validated");
+    } catch {
+      setCanOrderOnWhatsapp(false);
+    }
+  }, []);
 
   if (!store || !store.isValidated) {
     return (
@@ -110,13 +131,24 @@ export default function SellerBoutiquePage() {
                   <p className="text-sm text-slate-300">{product.description}</p>
                   <p className="text-lg font-extrabold text-orange-300">{formatXof(product.priceXof)} XOF</p>
                   <a
-                    href={waUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center justify-center rounded-xl bg-emerald-600 px-4 py-2 font-semibold"
+                    href={canOrderOnWhatsapp ? waUrl : "#"}
+                    target={canOrderOnWhatsapp ? "_blank" : undefined}
+                    rel={canOrderOnWhatsapp ? "noopener noreferrer" : undefined}
+                    onClick={(event) => {
+                      if (!canOrderOnWhatsapp) {
+                        event.preventDefault();
+                      }
+                    }}
+                    aria-disabled={!canOrderOnWhatsapp}
+                    className={`inline-flex items-center justify-center rounded-xl px-4 py-2 font-semibold ${
+                      canOrderOnWhatsapp ? "bg-emerald-600" : "bg-slate-700 text-slate-300 cursor-not-allowed"
+                    }`}
                   >
                     Commander sur WhatsApp
                   </a>
+                  {!canOrderOnWhatsapp ? (
+                    <p className="text-xs text-amber-300">Commande WhatsApp reservee aux visiteurs certifies.</p>
+                  ) : null}
                 </div>
               </article>
             );
