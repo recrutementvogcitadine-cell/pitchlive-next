@@ -35,7 +35,7 @@ export default function VendeurStatutPage() {
   const [registration, setRegistration] = useState<SellerRegistration | null>(null);
 
   const contactAdminWhatsapp = () => {
-    const raw = env.sellerWhatsapp || "2250700000000";
+    const raw = env.sellerWhatsapp;
     const normalized = raw.replace(/[^\d+]/g, "");
     if (!normalized || typeof window === "undefined") return;
     const sellerName = registration ? `${registration.firstName} ${registration.lastName}`.trim() : "Vendeur";

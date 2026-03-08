@@ -87,7 +87,7 @@ export default function InscriptionVendeurPage() {
   };
 
   const sendToPitchLiveWhatsApp = (summary: string) => {
-    const pitchWhatsapp = env.sellerWhatsapp || "2250700000000";
+    const pitchWhatsapp = env.sellerWhatsapp;
     const normalized = normalizePhone(pitchWhatsapp);
     if (!normalized) return;
     const waUrl = `https://wa.me/${normalized}?text=${encodeURIComponent(summary)}`;

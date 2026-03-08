@@ -319,7 +319,7 @@ export default function CreatorStudioPage() {
   };
 
   const openAdminWhatsapp = () => {
-    const raw = env.sellerWhatsapp || "2250700000000";
+    const raw = env.sellerWhatsapp;
     const normalized = raw.replace(/[^\d+]/g, "");
     if (!normalized || typeof window === "undefined") return;
     const message = [
