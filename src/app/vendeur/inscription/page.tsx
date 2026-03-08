@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { env } from "@/lib/env";
 
 type SellerFormState = {
@@ -21,6 +21,19 @@ const INITIAL_FORM: SellerFormState = {
   forfait: "",
 };
 
+type SellerPlanPricing = {
+  jour: number;
+  semaine: number;
+  mois: number;
+};
+
+const SELLER_PRICING_KEY = "pitchlive.seller.planPricing.v1";
+const DEFAULT_SELLER_PRICING: SellerPlanPricing = {
+  jour: 5000,
+  semaine: 25000,
+  mois: 80000,
+};
+
 function normalizePhone(value: string) {
   return value.replace(/[^\d+]/g, "");
 }
@@ -38,10 +51,34 @@ function computeEndDate(forfait: "jour" | "semaine" | "mois") {
   return { start, end };
 }
 
+function formatCfa(value: number) {
+  return `${Math.max(0, Math.floor(value)).toLocaleString("fr-FR")} F CFA`;
+}
+
 export default function InscriptionVendeurPage() {
   const [form, setForm] = useState<SellerFormState>(INITIAL_FORM);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [pricing, setPricing] = useState<SellerPlanPricing>(DEFAULT_SELLER_PRICING);
+
+  useEffect(() => {
+    const raw = window.localStorage.getItem(SELLER_PRICING_KEY);
+    if (!raw) {
+      setPricing(DEFAULT_SELLER_PRICING);
+      return;
+    }
+
+    try {
+      const parsed = JSON.parse(raw) as Partial<SellerPlanPricing>;
+      setPricing({
+        jour: Number.isFinite(parsed.jour) ? Math.max(0, Number(parsed.jour)) : DEFAULT_SELLER_PRICING.jour,
+        semaine: Number.isFinite(parsed.semaine) ? Math.max(0, Number(parsed.semaine)) : DEFAULT_SELLER_PRICING.semaine,
+        mois: Number.isFinite(parsed.mois) ? Math.max(0, Number(parsed.mois)) : DEFAULT_SELLER_PRICING.mois,
+      });
+    } catch {
+      setPricing(DEFAULT_SELLER_PRICING);
+    }
+  }, []);
 
   const onChange = (field: keyof SellerFormState, value: string) => {
     setForm((prev) => ({ ...prev, [field]: value as SellerFormState[keyof SellerFormState] }));
@@ -83,6 +120,8 @@ export default function InscriptionVendeurPage() {
 
     try {
       const { start, end } = computeEndDate(form.forfait as "jour" | "semaine" | "mois");
+      const planPriceCfa =
+        form.forfait === "jour" ? pricing.jour : form.forfait === "semaine" ? pricing.semaine : pricing.mois;
       const sellerRegistration = {
         id: "main-creator",
         firstName: prenom,
@@ -93,6 +132,7 @@ export default function InscriptionVendeurPage() {
         plan: form.forfait,
         planStartAt: start.toISOString(),
         planEndAt: end.toISOString(),
+        planPriceCfa,
         status: "pending",
         createdAt: new Date().toISOString(),
       };
@@ -106,7 +146,7 @@ export default function InscriptionVendeurPage() {
         `Nom: ${prenom} ${nom}`,
         `Activite: ${activite}`,
         `Telephone: ${telephone}`,
-        `Forfait: ${form.forfait.toUpperCase()}`,
+        `Forfait: ${form.forfait.toUpperCase()} (${formatCfa(planPriceCfa)})`,
         "Statut: EN ATTENTE",
       ].join("\n");
       sendToPitchLiveWhatsApp(summary);
@@ -155,13 +195,13 @@ export default function InscriptionVendeurPage() {
             <legend className="text-sm">Choisir un forfait</legend>
             <div className="grid gap-2 sm:grid-cols-3">
               <button type="button" onClick={() => onChange("forfait", "jour")} className={`rounded-xl px-3 py-3 font-semibold border ${form.forfait === "jour" ? "bg-emerald-600 border-emerald-400" : "bg-slate-800 border-slate-600"}`}>
-                Forfait JOUR
+                JOUR {formatCfa(pricing.jour)}
               </button>
               <button type="button" onClick={() => onChange("forfait", "semaine")} className={`rounded-xl px-3 py-3 font-semibold border ${form.forfait === "semaine" ? "bg-emerald-600 border-emerald-400" : "bg-slate-800 border-slate-600"}`}>
-                Forfait SEMAINE
+                SEMAINE {formatCfa(pricing.semaine)}
               </button>
               <button type="button" onClick={() => onChange("forfait", "mois")} className={`rounded-xl px-3 py-3 font-semibold border ${form.forfait === "mois" ? "bg-emerald-600 border-emerald-400" : "bg-slate-800 border-slate-600"}`}>
-                Forfait MOIS
+                MOIS {formatCfa(pricing.mois)}
               </button>
             </div>
           </fieldset>

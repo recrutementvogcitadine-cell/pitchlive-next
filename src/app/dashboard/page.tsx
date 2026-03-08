@@ -37,9 +37,21 @@ type TeamMember = {
   role: string | null;
 };
 
+type SellerPlanPricing = {
+  jour: number;
+  semaine: number;
+  mois: number;
+};
+
 const ADMIN_AUTH_KEY = "pitchlive.admin.auth";
 const DASHBOARD_SOUND_KEY = "pitchlive.admin.dashboard.sound";
 const DASHBOARD_SOUND_MODE_KEY = "pitchlive.admin.dashboard.sound.mode";
+const SELLER_PRICING_KEY = "pitchlive.seller.planPricing.v1";
+const DEFAULT_SELLER_PRICING: SellerPlanPricing = {
+  jour: 5000,
+  semaine: 25000,
+  mois: 80000,
+};
 const EMPTY_STATS: DashboardStats = {
   activeLives: 0,
   totalLives: 0,
@@ -92,6 +104,16 @@ function roleBadgeClasses(role: DashboardRole) {
   if (role === "owner") return "bg-red-600 text-white";
   if (role === "admin") return "bg-orange-500 text-white";
   return "bg-yellow-400 text-slate-950";
+}
+
+function normalizePlanPrice(value: string) {
+  const parsed = Number(value.replace(/[^\d]/g, ""));
+  if (!Number.isFinite(parsed) || parsed < 0) return 0;
+  return Math.floor(parsed);
+}
+
+function formatCfa(value: number) {
+  return `${Math.max(0, Math.floor(value)).toLocaleString("fr-FR")} F CFA`;
 }
 
 function makeLast15MinSlots() {
@@ -181,6 +203,8 @@ export default function DashboardPage() {
   const [teamError, setTeamError] = useState<string | null>(null);
   const [teamCanManage, setTeamCanManage] = useState(false);
   const [roleSavingUserId, setRoleSavingUserId] = useState<string | null>(null);
+  const [pricingDraft, setPricingDraft] = useState<SellerPlanPricing>(DEFAULT_SELLER_PRICING);
+  const [pricingInfo, setPricingInfo] = useState<string | null>(null);
 
   useEffect(() => {
     const existing = window.sessionStorage.getItem(ADMIN_AUTH_KEY);
@@ -194,6 +218,20 @@ export default function DashboardPage() {
     const savedMode = window.localStorage.getItem(DASHBOARD_SOUND_MODE_KEY);
     if (savedMode === "night") {
       setSoundMode("night");
+    }
+
+    const savedPricing = window.localStorage.getItem(SELLER_PRICING_KEY);
+    if (savedPricing) {
+      try {
+        const parsed = JSON.parse(savedPricing) as Partial<SellerPlanPricing>;
+        setPricingDraft({
+          jour: Number.isFinite(parsed.jour) ? Math.max(0, Number(parsed.jour)) : DEFAULT_SELLER_PRICING.jour,
+          semaine: Number.isFinite(parsed.semaine) ? Math.max(0, Number(parsed.semaine)) : DEFAULT_SELLER_PRICING.semaine,
+          mois: Number.isFinite(parsed.mois) ? Math.max(0, Number(parsed.mois)) : DEFAULT_SELLER_PRICING.mois,
+        });
+      } catch {
+        setPricingDraft(DEFAULT_SELLER_PRICING);
+      }
     }
 
     setLoading(false);
@@ -311,6 +349,22 @@ export default function DashboardPage() {
     } finally {
       setRoleSavingUserId(null);
     }
+  };
+
+  const saveSellerPricing = () => {
+    if (typeof window === "undefined") return;
+    window.localStorage.setItem(SELLER_PRICING_KEY, JSON.stringify(pricingDraft));
+    setPricingInfo("Tarifs forfaits sauvegardes.");
+    window.setTimeout(() => setPricingInfo(null), 2200);
+  };
+
+  const resetSellerPricingDefaults = () => {
+    setPricingDraft(DEFAULT_SELLER_PRICING);
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem(SELLER_PRICING_KEY, JSON.stringify(DEFAULT_SELLER_PRICING));
+    }
+    setPricingInfo("Tarifs forfaits reinitialises (5000 / 25000 / 80000).");
+    window.setTimeout(() => setPricingInfo(null), 2200);
   };
 
   const ensureAudioContext = async () => {
@@ -956,6 +1010,82 @@ export default function DashboardPage() {
               <p className="text-sm text-slate-400">Aucun utilisateur charge pour le moment.</p>
             )}
           </div>
+        </section>
+
+        <section className="rounded-2xl border border-slate-700 bg-slate-900/70 p-4 md:p-5 grid gap-4">
+          <div className="flex items-center justify-between gap-3 flex-wrap">
+            <h2 className="font-semibold text-slate-100">Gestion des forfaits vendeurs</h2>
+            <p className="text-xs text-slate-400">Tarifs libres de 0 F CFA a l'infini</p>
+          </div>
+
+          <div className="grid sm:grid-cols-3 gap-3">
+            <label className="grid gap-1 text-sm">
+              Forfait JOUR (F CFA)
+              <input
+                inputMode="numeric"
+                value={String(pricingDraft.jour)}
+                onChange={(event) =>
+                  setPricingDraft((prev) => ({
+                    ...prev,
+                    jour: normalizePlanPrice(event.target.value),
+                  }))
+                }
+                className="rounded-xl border border-slate-600 bg-slate-800 px-3 py-2 outline-none"
+              />
+            </label>
+
+            <label className="grid gap-1 text-sm">
+              Forfait SEMAINE (F CFA)
+              <input
+                inputMode="numeric"
+                value={String(pricingDraft.semaine)}
+                onChange={(event) =>
+                  setPricingDraft((prev) => ({
+                    ...prev,
+                    semaine: normalizePlanPrice(event.target.value),
+                  }))
+                }
+                className="rounded-xl border border-slate-600 bg-slate-800 px-3 py-2 outline-none"
+              />
+            </label>
+
+            <label className="grid gap-1 text-sm">
+              Forfait MOIS (F CFA)
+              <input
+                inputMode="numeric"
+                value={String(pricingDraft.mois)}
+                onChange={(event) =>
+                  setPricingDraft((prev) => ({
+                    ...prev,
+                    mois: normalizePlanPrice(event.target.value),
+                  }))
+                }
+                className="rounded-xl border border-slate-600 bg-slate-800 px-3 py-2 outline-none"
+              />
+            </label>
+          </div>
+
+          <div className="text-xs text-slate-300 rounded-xl border border-slate-700 bg-slate-800/60 p-3">
+            Apercu vendeur actuel: JOUR {formatCfa(pricingDraft.jour)} • SEMAINE {formatCfa(pricingDraft.semaine)} • MOIS {formatCfa(pricingDraft.mois)}
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            <button type="button" onClick={saveSellerPricing} className="rounded-full bg-emerald-700 px-4 py-2 text-sm font-semibold">
+              Sauvegarder tarifs
+            </button>
+            <button
+              type="button"
+              onClick={() => setPricingDraft({ jour: 0, semaine: 0, mois: 0 })}
+              className="rounded-full bg-sky-700 px-4 py-2 text-sm font-semibold"
+            >
+              Tout gratuit (0 FCFA)
+            </button>
+            <button type="button" onClick={resetSellerPricingDefaults} className="rounded-full bg-slate-700 px-4 py-2 text-sm font-semibold">
+              Reinitialiser par defaut
+            </button>
+          </div>
+
+          {pricingInfo ? <p className="text-sm text-emerald-300">{pricingInfo}</p> : null}
         </section>
 
         <section className="rounded-2xl border border-slate-700 bg-slate-900/70 p-4 md:p-5 grid gap-3">
