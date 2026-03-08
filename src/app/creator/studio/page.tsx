@@ -309,6 +309,8 @@ export default function CreatorStudioPage() {
   const announceNoticeTimeoutRef = useRef<number | null>(null);
 
   const creatorId = "main-creator";
+  const sellerStatus = sellerRegistration?.status ?? "pending";
+  const studioLocked = sellerStatus !== "validated";
 
   const playTrackInPreview = (track: ICameraVideoTrack, target: "hidden" | "overlay") => {
     const containerId = target === "overlay" ? "creator-preview-overlay" : "creator-preview";
@@ -1336,21 +1338,24 @@ export default function CreatorStudioPage() {
               <button
                 type="button"
                 onClick={() => saveCameraProfile()}
-                className="rounded-lg border border-violet-400/60 bg-violet-800/35 px-3 py-2 text-xs md:text-sm font-semibold"
+                disabled={studioLocked}
+                className="rounded-lg border border-violet-400/60 bg-violet-800/35 px-3 py-2 text-xs md:text-sm font-semibold disabled:opacity-50"
               >
                 Sauver profil camera
               </button>
               <button
                 type="button"
                 onClick={resetCameraProfile}
-                className="rounded-lg border border-slate-500/70 bg-slate-800/60 px-3 py-2 text-xs md:text-sm font-semibold"
+                disabled={studioLocked}
+                className="rounded-lg border border-slate-500/70 bg-slate-800/60 px-3 py-2 text-xs md:text-sm font-semibold disabled:opacity-50"
               >
                 Reinitialiser profil
               </button>
               <button
                     type="button"
                     onClick={() => void toggleFacing()}
-                className="rounded-lg border border-sky-400/60 bg-sky-800/25 px-3 py-2 text-xs md:text-sm font-semibold"
+                disabled={studioLocked}
+                className="rounded-lg border border-sky-400/60 bg-sky-800/25 px-3 py-2 text-xs md:text-sm font-semibold disabled:opacity-50"
               >
                 Caméra: {cameraFacing === "environment" ? "ARRIÈRE" : "AVANT"}
               </button>
@@ -1362,6 +1367,7 @@ export default function CreatorStudioPage() {
             <input
               value={title}
               onChange={(event) => setTitle(event.target.value)}
+              disabled={studioLocked}
               className="rounded-xl border border-slate-600 bg-slate-800 px-3 py-2 outline-none"
             />
           </label>
@@ -1370,16 +1376,16 @@ export default function CreatorStudioPage() {
             <button
               type="button"
               onClick={() => void openLivePreview()}
-              disabled={busy || isLive || !sellerRegistration || sellerRegistration.status !== "validated"}
+              disabled={studioLocked || busy || isLive || !sellerRegistration}
               className="rounded-xl bg-fuchsia-600 px-4 py-3 font-bold disabled:opacity-50"
             >
-              {busy && !isLive ? "Ouverture preview..." : !sellerRegistration || sellerRegistration.status !== "validated" ? "Validation admin requise" : "Previsualiser le live"}
+              {busy && !isLive ? "Ouverture preview..." : studioLocked ? "Validation admin requise" : "Previsualiser le live"}
             </button>
 
             <button
               type="button"
               onClick={() => void stopLive()}
-              disabled={busy || !isLive}
+              disabled={studioLocked || busy || !isLive}
               className="rounded-xl bg-slate-700 px-4 py-3 font-bold disabled:opacity-50"
             >
               {busy && isLive ? "Arret..." : "Arreter le live"}
@@ -1388,7 +1394,7 @@ export default function CreatorStudioPage() {
             <button
               type="button"
               onClick={() => void toggleCameraInput()}
-              disabled={busy}
+              disabled={studioLocked || busy}
               className="rounded-xl border border-emerald-500/60 bg-emerald-900/20 px-4 py-3 font-semibold disabled:opacity-50"
             >
               Camera: {cameraEnabled ? "ON" : "OFF"}
@@ -1397,7 +1403,7 @@ export default function CreatorStudioPage() {
             <button
               type="button"
               onClick={() => void toggleMicrophoneInput()}
-              disabled={busy}
+              disabled={studioLocked || busy}
               className="rounded-xl border border-amber-500/60 bg-amber-900/20 px-4 py-3 font-semibold disabled:opacity-50"
             >
               Micro: {microphoneEnabled ? "ON" : "OFF"}
@@ -1407,7 +1413,7 @@ export default function CreatorStudioPage() {
           <button
             type="button"
             onClick={() => void switchCamera()}
-              disabled={!previewReady || busy}
+              disabled={studioLocked || !previewReady || busy}
             className="rounded-xl border border-slate-500 bg-slate-800 px-4 py-3 font-semibold disabled:opacity-50"
           >
             Changer camera arriere ({cameraLabel || "Auto"})
@@ -1429,7 +1435,8 @@ export default function CreatorStudioPage() {
                 return next;
               });
             }}
-            className="rounded-xl border border-emerald-500/60 bg-emerald-900/20 px-4 py-3 font-semibold"
+            disabled={studioLocked}
+            className="rounded-xl border border-emerald-500/60 bg-emerald-900/20 px-4 py-3 font-semibold disabled:opacity-50"
           >
             {beautyPreview ? "Beaute legere: ON" : "Beaute legere: OFF"}
           </button>
@@ -1450,7 +1457,8 @@ export default function CreatorStudioPage() {
                 return next;
               });
             }}
-            className="rounded-xl border border-sky-500/60 bg-sky-900/20 px-4 py-3 font-semibold"
+            disabled={studioLocked}
+            className="rounded-xl border border-sky-500/60 bg-sky-900/20 px-4 py-3 font-semibold disabled:opacity-50"
           >
             {showCameraGuides ? "Guides cadrage: ON" : "Guides cadrage: OFF"}
           </button>
@@ -1463,8 +1471,19 @@ export default function CreatorStudioPage() {
             Forfait: <strong>{sellerRegistration?.plan?.toUpperCase() || "AUCUN"}</strong> • Debut: <strong>{sellerRegistration?.planStartAt ? new Date(sellerRegistration.planStartAt).toLocaleString("fr-FR") : "--"}</strong> • Fin: <strong>{sellerRegistration?.planEndAt ? new Date(sellerRegistration.planEndAt).toLocaleString("fr-FR") : "--"}</strong> • Compte a rebours: <strong>{forfaitRemaining}</strong>
           </div>
 
-          <div className="text-sm text-slate-300">
-            Statut vendeur: <strong>{sellerRegistration?.status === "validated" ? "VALIDE" : sellerRegistration?.status === "refused" ? "REFUSE" : sellerRegistration?.status === "pending" ? "EN ATTENTE" : "NON DEFINI"}</strong>
+          <div className="text-sm text-slate-300 flex items-center gap-2 flex-wrap">
+            <span>Statut vendeur:</span>
+            <span
+              className={`inline-flex rounded-full px-3 py-1 text-xs font-bold ${
+                sellerStatus === "validated"
+                  ? "bg-emerald-600 text-white"
+                  : sellerStatus === "pending"
+                    ? "bg-red-600 text-white"
+                    : "bg-slate-600 text-white"
+              }`}
+            >
+              {sellerStatus === "validated" ? "VALIDE" : sellerStatus === "pending" ? "EN ATTENTE" : "REFUSE"}
+            </span>
           </div>
 
           {sellerRegistration?.status === "pending" ? (
@@ -1475,7 +1494,8 @@ export default function CreatorStudioPage() {
               <button
                 type="button"
                 onClick={openAdminWhatsapp}
-                className="w-full sm:w-auto rounded-xl bg-emerald-600 px-4 py-2 font-semibold"
+                disabled={studioLocked}
+                className="w-full sm:w-auto rounded-xl bg-emerald-600 px-4 py-2 font-semibold disabled:opacity-50"
               >
                 Contacter nous par WhatsApp
               </button>
@@ -1505,6 +1525,7 @@ export default function CreatorStudioPage() {
             <input
               value={sellerWhatsappNumber}
               onChange={(event) => setSellerWhatsappNumber(event.target.value)}
+              disabled={studioLocked}
               className="rounded-xl border border-slate-600 bg-slate-800 px-3 py-2 outline-none"
               placeholder="2250701234567"
             />
@@ -1512,7 +1533,7 @@ export default function CreatorStudioPage() {
           <button
             type="button"
             onClick={() => void saveSellerWhatsapp()}
-            disabled={savingWhatsapp}
+            disabled={studioLocked || savingWhatsapp}
             className="rounded-xl bg-emerald-600 px-4 py-3 font-bold disabled:opacity-50"
           >
             {savingWhatsapp ? "Sauvegarde..." : "Sauvegarder WhatsApp vendeur"}
@@ -1525,16 +1546,18 @@ export default function CreatorStudioPage() {
             <input
               value={productDraft.name}
               onChange={(event) => setProductDraft((prev) => ({ ...prev, name: event.target.value }))}
+              disabled={studioLocked}
               className="rounded-xl border border-slate-600 bg-slate-800 px-3 py-2 outline-none"
               placeholder="Nom produit"
             />
             <input
               value={productDraft.price}
               onChange={(event) => setProductDraft((prev) => ({ ...prev, price: event.target.value }))}
+              disabled={studioLocked}
               className="rounded-xl border border-slate-600 bg-slate-800 px-3 py-2 outline-none"
               placeholder="Prix (XOF)"
             />
-            <button type="button" onClick={addProduct} className="rounded-xl bg-blue-600 px-3 py-2 font-semibold">
+            <button type="button" onClick={addProduct} disabled={studioLocked} className="rounded-xl bg-blue-600 px-3 py-2 font-semibold disabled:opacity-50">
               Ajouter produit
             </button>
           </div>
@@ -1546,7 +1569,7 @@ export default function CreatorStudioPage() {
                   <p className="text-sm">
                     <strong>{product.name}</strong> • {product.price}
                   </p>
-                  <button type="button" onClick={() => removeProduct(product.id)} className="rounded-lg bg-rose-700 px-2 py-1 text-xs font-semibold">
+                  <button type="button" onClick={() => removeProduct(product.id)} disabled={studioLocked} className="rounded-lg bg-rose-700 px-2 py-1 text-xs font-semibold disabled:opacity-50">
                     Supprimer
                   </button>
                 </div>
@@ -1671,7 +1694,7 @@ export default function CreatorStudioPage() {
                 <button
                   type="button"
                   onClick={beginGoLiveCountdown}
-                  disabled={busy || !previewReady || goLiveCountdown !== null}
+                  disabled={studioLocked || busy || !previewReady || goLiveCountdown !== null}
                   className="w-full rounded-full bg-red-600 px-5 py-4 text-lg font-extrabold tracking-wide text-white disabled:opacity-50"
                 >
                   {goLiveCountdown !== null ? `Demarrage dans ${goLiveCountdown}...` : busy ? "Demarrage..." : "Passer en live"}
@@ -1683,21 +1706,24 @@ export default function CreatorStudioPage() {
                   <button
                     type="button"
                     onClick={() => void toggleCameraInput()}
-                    className="rounded-xl bg-white/10 px-3 py-2 text-left text-sm font-semibold text-white"
+                    disabled={studioLocked}
+                    className="rounded-xl bg-white/10 px-3 py-2 text-left text-sm font-semibold text-white disabled:opacity-50"
                   >
                     {cameraEnabled ? "Pause video" : "Reprendre video"}
                   </button>
                   <button
                     type="button"
                     onClick={() => void toggleMicrophoneInput()}
-                    className="rounded-xl bg-white/10 px-3 py-2 text-left text-sm font-semibold text-white"
+                    disabled={studioLocked}
+                    className="rounded-xl bg-white/10 px-3 py-2 text-left text-sm font-semibold text-white disabled:opacity-50"
                   >
                     {microphoneEnabled ? "Couper micro" : "Activer micro"}
                   </button>
                   <button
                     type="button"
                     onClick={openSellerStore}
-                    className="rounded-xl bg-white/10 px-3 py-2 text-left text-sm font-semibold text-white"
+                    disabled={studioLocked}
+                    className="rounded-xl bg-white/10 px-3 py-2 text-left text-sm font-semibold text-white disabled:opacity-50"
                   >
                     Acces boutique vendeur
                   </button>
@@ -1727,7 +1753,8 @@ export default function CreatorStudioPage() {
                 <button
                   type="button"
                   onClick={() => setBeautyPreview((prev) => !prev)}
-                  className="flex flex-col items-center gap-1 text-white/95"
+                  disabled={studioLocked}
+                  className="flex flex-col items-center gap-1 text-white/95 disabled:opacity-50"
                 >
                   <Sparkles size={21} />
                   <span className="text-[11px]">Effets</span>
@@ -1735,7 +1762,8 @@ export default function CreatorStudioPage() {
                 <button
                   type="button"
                   onClick={() => setShowAdvancedMenu((prev) => !prev)}
-                  className="flex flex-col items-center gap-1 text-white/95"
+                  disabled={studioLocked}
+                  className="flex flex-col items-center gap-1 text-white/95 disabled:opacity-50"
                 >
                   <Ellipsis size={21} />
                   <span className="text-[11px]">Plus</span>

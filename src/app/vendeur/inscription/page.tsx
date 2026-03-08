@@ -28,6 +28,7 @@ type SellerPlanPricing = {
 };
 
 const SELLER_PRICING_KEY = "pitchlive.seller.planPricing.v1";
+const SELLER_REGISTRATIONS_KEY = "pitchlive.seller.registrations.v1";
 const DEFAULT_SELLER_PRICING: SellerPlanPricing = {
   jour: 5000,
   semaine: 25000,
@@ -138,6 +139,23 @@ export default function InscriptionVendeurPage() {
       };
 
       window.localStorage.setItem("pitchlive.seller.registration", JSON.stringify(sellerRegistration));
+      const rawRegistrations = window.localStorage.getItem(SELLER_REGISTRATIONS_KEY);
+      let registrations: Array<typeof sellerRegistration> = [];
+      if (rawRegistrations) {
+        try {
+          const parsed = JSON.parse(rawRegistrations) as Array<typeof sellerRegistration>;
+          registrations = Array.isArray(parsed) ? parsed : [];
+        } catch {
+          registrations = [];
+        }
+      }
+
+      const nextRegistrations = [
+        sellerRegistration,
+        ...registrations.filter((item) => item.id !== sellerRegistration.id),
+      ];
+      window.localStorage.setItem(SELLER_REGISTRATIONS_KEY, JSON.stringify(nextRegistrations));
+
       // Pending sellers can access studio UI, but live actions remain locked until admin validation.
       window.localStorage.setItem("pitchlive.access", JSON.stringify({ visitor: false, seller: true }));
 
@@ -207,7 +225,7 @@ export default function InscriptionVendeurPage() {
           </fieldset>
 
           <button type="button" onClick={() => void submit()} disabled={busy} className="rounded-xl bg-blue-600 px-4 py-3 font-bold disabled:opacity-50">
-            {busy ? "Creation en cours..." : "Valider mon inscription vendeur"}
+            {busy ? "Creation en cours..." : "Valider mon compte vendeur"}
           </button>
 
           {error ? <p className="text-sm text-red-300">Erreur: {error}</p> : null}
