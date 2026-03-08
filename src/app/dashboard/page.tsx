@@ -29,6 +29,14 @@ type AlertItem = {
   at: string;
 };
 
+type DashboardRole = "owner" | "admin" | "agent";
+
+type TeamMember = {
+  id: string;
+  email: string | null;
+  role: string | null;
+};
+
 const ADMIN_AUTH_KEY = "pitchlive.admin.auth";
 const DASHBOARD_SOUND_KEY = "pitchlive.admin.dashboard.sound";
 const DASHBOARD_SOUND_MODE_KEY = "pitchlive.admin.dashboard.sound.mode";
@@ -42,6 +50,12 @@ const EMPTY_STATS: DashboardStats = {
   totalPresence: 0,
   totalSellerProfiles: 0,
   totalPushSubscriptions: 0,
+};
+
+const ROLE_FUNCTIONS: Record<DashboardRole, string[]> = {
+  owner: ["Gestion equipe (roles)", "Dashboard complet", "Export analytics", "Validation vendeurs"],
+  admin: ["Dashboard complet", "Validation vendeurs", "Export analytics", "Supervision live"],
+  agent: ["Monitoring live", "Suivi chat", "Lecture analytics", "Support moderation"],
 };
 
 function formatRelativeDate(iso: string) {
@@ -64,6 +78,20 @@ function toneClasses(tone: ActivityEvent["tone"]) {
   if (tone === "amber") return "border-amber-500/45 bg-amber-900/15 text-amber-100";
   if (tone === "rose") return "border-rose-500/45 bg-rose-900/15 text-rose-100";
   return "border-slate-600 bg-slate-800/50 text-slate-100";
+}
+
+function normalizeDashboardRole(value: string | null | undefined): DashboardRole | null {
+  const role = (value ?? "").trim().toLowerCase();
+  if (role === "owner") return "owner";
+  if (role === "admin") return "admin";
+  if (role === "agent") return "agent";
+  return null;
+}
+
+function roleBadgeClasses(role: DashboardRole) {
+  if (role === "owner") return "bg-red-600 text-white";
+  if (role === "admin") return "bg-orange-500 text-white";
+  return "bg-yellow-400 text-slate-950";
 }
 
 function makeLast15MinSlots() {
@@ -147,6 +175,12 @@ export default function DashboardPage() {
   const [soundEnabled, setSoundEnabled] = useState(true);
   const [soundMode, setSoundMode] = useState<"all" | "night">("all");
   const [alerts, setAlerts] = useState<AlertItem[]>([]);
+  const [dashboardRole, setDashboardRole] = useState<DashboardRole | null>(null);
+  const [teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
+  const [teamBusy, setTeamBusy] = useState(false);
+  const [teamError, setTeamError] = useState<string | null>(null);
+  const [teamCanManage, setTeamCanManage] = useState(false);
+  const [roleSavingUserId, setRoleSavingUserId] = useState<string | null>(null);
 
   useEffect(() => {
     const existing = window.sessionStorage.getItem(ADMIN_AUTH_KEY);
@@ -174,6 +208,18 @@ export default function DashboardPage() {
     if (typeof window === "undefined") return;
     window.localStorage.setItem(DASHBOARD_SOUND_MODE_KEY, soundMode);
   }, [soundMode]);
+
+  useEffect(() => {
+    if (!isAuthed) {
+      setDashboardRole(null);
+      setTeamMembers([]);
+      setTeamCanManage(false);
+      setTeamError(null);
+      return;
+    }
+
+    void loadTeamMembers();
+  }, [isAuthed]);
 
   const verifyPin = async () => {
     setAuthError(null);
@@ -210,6 +256,61 @@ export default function DashboardPage() {
     window.sessionStorage.removeItem(ADMIN_AUTH_KEY);
     setIsAuthed(false);
     setRealtimeConnected(false);
+  };
+
+  const loadTeamMembers = async () => {
+    setTeamBusy(true);
+    setTeamError(null);
+    try {
+      const res = await fetch("/api/dashboard/team", { cache: "no-store" });
+      const body = (await res.json().catch(() => ({}))) as {
+        ok?: boolean;
+        error?: string;
+        team?: TeamMember[];
+        callerRole?: DashboardRole;
+        canManage?: boolean;
+      };
+
+      if (!res.ok || !body.ok) {
+        throw new Error(body.error || "Impossible de charger l'equipe.");
+      }
+
+      setDashboardRole(body.callerRole ?? null);
+      setTeamMembers(body.team ?? []);
+      setTeamCanManage(Boolean(body.canManage));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Impossible de charger l'equipe.";
+      setTeamError(message);
+      setTeamMembers([]);
+      setTeamCanManage(false);
+    } finally {
+      setTeamBusy(false);
+    }
+  };
+
+  const assignUserRole = async (userId: string, role: DashboardRole | null) => {
+    if (!teamCanManage) return;
+
+    setRoleSavingUserId(userId);
+    setTeamError(null);
+    try {
+      const res = await fetch("/api/dashboard/team", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId, role }),
+      });
+      const body = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string };
+      if (!res.ok || !body.ok) {
+        throw new Error(body.error || "Mise a jour role impossible.");
+      }
+
+      await loadTeamMembers();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Mise a jour role impossible.";
+      setTeamError(message);
+    } finally {
+      setRoleSavingUserId(null);
+    }
   };
 
   const ensureAudioContext = async () => {
@@ -592,7 +693,21 @@ export default function DashboardPage() {
       <section className="mx-auto max-w-7xl grid gap-4">
         <header className="rounded-2xl border border-slate-700 bg-slate-900/70 p-4 md:p-5 grid gap-3">
           <div className="flex justify-between items-center flex-wrap gap-3">
-            <h1 className="text-2xl md:text-3xl font-bold">Dashboard Administrateur Temps Reel</h1>
+            <div className="flex items-center gap-3">
+              <img
+                src="https://www.pitchci.com/icons/preview-logo-v2.svg"
+                alt="Pitch Live"
+                className="h-11 w-11 rounded-xl border border-slate-600 bg-slate-800 p-1"
+              />
+              <div>
+                <h1 className="text-2xl md:text-3xl font-bold">Dashboard Administrateur Temps Reel</h1>
+                {dashboardRole ? (
+                  <span className={`mt-1 inline-flex rounded-full px-2.5 py-1 text-xs font-bold uppercase ${roleBadgeClasses(dashboardRole)}`}>
+                    {dashboardRole === "owner" ? "Proprietaire" : dashboardRole === "admin" ? "Admin" : "Agent"}
+                  </span>
+                ) : null}
+              </div>
+            </div>
             <div className="flex gap-2 flex-wrap">
               <button
                 type="button"
@@ -737,6 +852,110 @@ export default function DashboardPage() {
               )}
             </div>
           </article>
+        </section>
+
+        <section className="rounded-2xl border border-slate-700 bg-slate-900/70 p-4 md:p-5 grid gap-4">
+          <div className="flex items-center justify-between gap-3 flex-wrap">
+            <h2 className="font-semibold text-slate-100">Gestion equipe (roles + fonctions)</h2>
+            <button
+              type="button"
+              onClick={() => void loadTeamMembers()}
+              disabled={teamBusy}
+              className="rounded-full bg-slate-700 px-3 py-2 text-xs font-semibold disabled:opacity-50"
+            >
+              {teamBusy ? "Chargement..." : "Rafraichir equipe"}
+            </button>
+          </div>
+
+          <div className="grid md:grid-cols-3 gap-2 text-xs">
+            <div className="rounded-xl border border-red-500/50 bg-red-900/20 p-3">
+              <p className="font-bold text-red-200">Proprietaire (Rouge)</p>
+              <p className="mt-1 text-red-100/90">{ROLE_FUNCTIONS.owner.join(" • ")}</p>
+            </div>
+            <div className="rounded-xl border border-orange-500/50 bg-orange-900/20 p-3">
+              <p className="font-bold text-orange-200">Admin (Orange)</p>
+              <p className="mt-1 text-orange-100/90">{ROLE_FUNCTIONS.admin.join(" • ")}</p>
+            </div>
+            <div className="rounded-xl border border-yellow-500/60 bg-yellow-900/20 p-3">
+              <p className="font-bold text-yellow-200">Agent (Jaune)</p>
+              <p className="mt-1 text-yellow-100/90">{ROLE_FUNCTIONS.agent.join(" • ")}</p>
+            </div>
+          </div>
+
+          {teamError ? <p className="text-sm text-rose-300">Erreur equipe: {teamError}</p> : null}
+          {!teamCanManage ? (
+            <p className="text-sm text-slate-300">
+              Ton role peut consulter le dashboard, mais la gestion des roles est reservee au proprietaire/admin.
+            </p>
+          ) : null}
+
+          <div className="grid gap-2 max-h-96 overflow-y-auto pr-1">
+            {teamMembers.length ? (
+              teamMembers.map((member) => {
+                const rowRole = normalizeDashboardRole(member.role);
+                return (
+                  <div key={member.id} className="rounded-xl border border-slate-700 bg-slate-800/65 p-3 grid gap-2">
+                    <div className="flex items-center justify-between gap-2 flex-wrap">
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-semibold text-slate-100">{member.email || member.id}</p>
+                        <p className="text-[11px] text-slate-400">ID: {member.id}</p>
+                      </div>
+                      <span
+                        className={`rounded-full px-2.5 py-1 text-xs font-bold ${
+                          rowRole ? roleBadgeClasses(rowRole) : "bg-slate-600 text-white"
+                        }`}
+                      >
+                        {rowRole === "owner" ? "Proprietaire" : rowRole === "admin" ? "Admin" : rowRole === "agent" ? "Agent" : "Aucun role"}
+                      </span>
+                    </div>
+
+                    <div className="flex gap-2 flex-wrap">
+                      <button
+                        type="button"
+                        disabled={!teamCanManage || roleSavingUserId === member.id}
+                        onClick={() => void assignUserRole(member.id, "owner")}
+                        className="rounded-full bg-red-600 px-3 py-1.5 text-xs font-bold text-white disabled:opacity-50"
+                      >
+                        Proprietaire
+                      </button>
+                      <button
+                        type="button"
+                        disabled={!teamCanManage || roleSavingUserId === member.id}
+                        onClick={() => void assignUserRole(member.id, "admin")}
+                        className="rounded-full bg-orange-500 px-3 py-1.5 text-xs font-bold text-white disabled:opacity-50"
+                      >
+                        Admin
+                      </button>
+                      <button
+                        type="button"
+                        disabled={!teamCanManage || roleSavingUserId === member.id}
+                        onClick={() => void assignUserRole(member.id, "agent")}
+                        className="rounded-full bg-yellow-400 px-3 py-1.5 text-xs font-bold text-slate-950 disabled:opacity-50"
+                      >
+                        Agent
+                      </button>
+                      <button
+                        type="button"
+                        disabled={!teamCanManage || roleSavingUserId === member.id}
+                        onClick={() => void assignUserRole(member.id, null)}
+                        className="rounded-full bg-slate-600 px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50"
+                      >
+                        Retirer role
+                      </button>
+                    </div>
+
+                    {rowRole ? (
+                      <p className="text-[11px] text-slate-300">Fonctions attribuees: {ROLE_FUNCTIONS[rowRole].join(" • ")}</p>
+                    ) : (
+                      <p className="text-[11px] text-slate-400">Aucune fonction dashboard attribuee.</p>
+                    )}
+                  </div>
+                );
+              })
+            ) : (
+              <p className="text-sm text-slate-400">Aucun utilisateur charge pour le moment.</p>
+            )}
+          </div>
         </section>
 
         <section className="rounded-2xl border border-slate-700 bg-slate-900/70 p-4 md:p-5 grid gap-3">
