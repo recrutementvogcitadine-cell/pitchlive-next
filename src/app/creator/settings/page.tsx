@@ -93,6 +93,9 @@ export default function CreatorSettingsPage() {
         <header className="flex items-center justify-between flex-wrap gap-3">
           <h1 className="text-2xl md:text-3xl font-bold">Parametres vendeur</h1>
           <div className="flex gap-2">
+            <Link href="/profile" className="rounded-full bg-blue-600 px-4 py-2 font-semibold">
+              Profil / Devenir vendeur
+            </Link>
             <Link href="/creator/studio" className="rounded-full bg-orange-500 px-4 py-2 font-semibold">
               Studio vendeur
             </Link>

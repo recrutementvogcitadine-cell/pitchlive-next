@@ -1697,6 +1697,7 @@ export default function DashboardPage() {
             <Link href="/creator/studio" className="rounded-xl border border-slate-600 bg-slate-800 px-3 py-2">Studio vendeur</Link>
             <Link href="/creator/settings" className="rounded-xl border border-slate-600 bg-slate-800 px-3 py-2">Settings vendeur</Link>
             <Link href="/dashboard/validation-vendeurs" className="rounded-xl border border-slate-600 bg-slate-800 px-3 py-2">Validation vendeurs</Link>
+            <Link href="/admin/dashboard" className="rounded-xl border border-slate-600 bg-slate-800 px-3 py-2">Admin dashboard vendeurs</Link>
             <Link href="/mur" className="rounded-xl border border-slate-600 bg-slate-800 px-3 py-2">Mur visiteur</Link>
             <Link href="/boutique" className="rounded-xl border border-slate-600 bg-slate-800 px-3 py-2">Boutiques</Link>
             <Link href="/vendeur/inscription" className="rounded-xl border border-slate-600 bg-slate-800 px-3 py-2">Inscription vendeur</Link>

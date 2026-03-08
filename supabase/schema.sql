@@ -82,11 +82,32 @@ create table if not exists public.seller_store_profiles (
   updated_at timestamptz not null default now()
 );
 
+create table if not exists public.sellers (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade unique,
+  store_name text not null,
+  whatsapp_number text not null,
+  category text not null,
+  country text not null,
+  city text not null,
+  identity_document_url text,
+  selfie_document_url text,
+  profile_photo_url text,
+  seller_status text not null default 'pending_verification' check (seller_status in ('pending_verification', 'rejected', 'approved', 'active')),
+  subscription_status text not null default 'unpaid' check (subscription_status in ('unpaid', 'pending_payment', 'paid', 'expired')),
+  subscription_plan text check (subscription_plan in ('jour', 'semaine', 'mois')),
+  subscription_expiry_date timestamptz,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
 create index if not exists idx_messages_live_session on public.messages(live_session_id, created_at desc);
 create index if not exists idx_likes_live_session on public.likes(live_session_id, created_at desc);
 create index if not exists idx_gifts_live_session on public.gifts(live_session_id, created_at desc);
 create index if not exists idx_presence_live_session on public.live_presence(live_session_id, joined_at desc);
 create index if not exists idx_push_subscriptions_user on public.push_subscriptions(user_id, enabled);
+create index if not exists idx_sellers_status on public.sellers(seller_status, subscription_status);
+create index if not exists idx_sellers_created_at on public.sellers(created_at desc);
 
 alter table public.users enable row level security;
 alter table public.live_sessions enable row level security;
@@ -97,6 +118,7 @@ alter table public.followers enable row level security;
 alter table public.push_subscriptions enable row level security;
 alter table public.live_presence enable row level security;
 alter table public.seller_store_profiles enable row level security;
+alter table public.sellers enable row level security;
 
 -- MVP open policies (tighten for production with auth checks)
 drop policy if exists users_all on public.users;
@@ -125,3 +147,32 @@ create policy presence_all on public.live_presence for all using (true) with che
 
 drop policy if exists seller_profiles_all on public.seller_store_profiles;
 create policy seller_profiles_all on public.seller_store_profiles for all using (true) with check (true);
+
+drop policy if exists sellers_select_own on public.sellers;
+create policy sellers_select_own on public.sellers for select using (auth.uid() = user_id);
+
+drop policy if exists sellers_insert_own on public.sellers;
+create policy sellers_insert_own on public.sellers for insert with check (auth.uid() = user_id);
+
+drop policy if exists sellers_update_own on public.sellers;
+create policy sellers_update_own on public.sellers for update using (auth.uid() = user_id) with check (auth.uid() = user_id);
+
+insert into storage.buckets (id, name, public)
+values ('kyc-documents', 'kyc-documents', false)
+on conflict (id) do nothing;
+
+drop policy if exists kyc_insert_own on storage.objects;
+create policy kyc_insert_own on storage.objects
+for insert to authenticated
+with check (bucket_id = 'kyc-documents' and (storage.foldername(name))[1] = auth.uid()::text);
+
+drop policy if exists kyc_select_own on storage.objects;
+create policy kyc_select_own on storage.objects
+for select to authenticated
+using (bucket_id = 'kyc-documents' and (storage.foldername(name))[1] = auth.uid()::text);
+
+drop policy if exists kyc_update_own on storage.objects;
+create policy kyc_update_own on storage.objects
+for update to authenticated
+using (bucket_id = 'kyc-documents' and (storage.foldername(name))[1] = auth.uid()::text)
+with check (bucket_id = 'kyc-documents' and (storage.foldername(name))[1] = auth.uid()::text);

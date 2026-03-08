@@ -6,6 +6,7 @@ import { Ellipsis, MessageSquare, Power, Share2, Sparkles, Users } from "lucide-
 import JoinTicker from "@/components/live/JoinTicker";
 import { env } from "@/lib/env";
 import { createClient } from "@/lib/supabase/client";
+import { canLaunchSellerLive } from "@/lib/seller-workflow";
 
 type IAgoraRTCClient = import("agora-rtc-sdk-ng").IAgoraRTCClient;
 type ICameraVideoTrack = import("agora-rtc-sdk-ng").ICameraVideoTrack;
@@ -37,6 +38,14 @@ type SellerRegistration = {
   planStartAt: string;
   planEndAt: string;
   status: "pending" | "validated" | "refused";
+};
+
+type SellerWorkflowStatus = {
+  seller_status: "pending_verification" | "rejected" | "approved" | "active";
+  subscription_status: "unpaid" | "pending_payment" | "paid" | "expired";
+  subscription_expiry_date: string | null;
+  subscription_plan: "jour" | "semaine" | "mois" | null;
+  store_name?: string;
 };
 
 type StudioProduct = {
@@ -302,6 +311,7 @@ export default function CreatorStudioPage() {
   const [sellerWhatsappNumber, setSellerWhatsappNumber] = useState("");
   const [savingWhatsapp, setSavingWhatsapp] = useState(false);
   const [sellerRegistration, setSellerRegistration] = useState<SellerRegistration | null>(null);
+  const [sellerWorkflowStatus, setSellerWorkflowStatus] = useState<SellerWorkflowStatus | null>(null);
   const [forfaitRemaining, setForfaitRemaining] = useState("--");
   const [products, setProducts] = useState<StudioProduct[]>([]);
   const [productDraft, setProductDraft] = useState({ name: "", price: "" });
@@ -320,7 +330,12 @@ export default function CreatorStudioPage() {
   const creatorId = "main-creator";
   const sellerStatus = sellerRegistration?.status ?? "pending";
   const isForfaitExpired = Boolean(sellerRegistration?.planEndAt) && new Date(String(sellerRegistration?.planEndAt)).getTime() <= Date.now();
-  const studioLocked = sellerStatus !== "validated" || isForfaitExpired;
+  const workflowLiveEnabled = canLaunchSellerLive({
+    sellerStatus: sellerWorkflowStatus?.seller_status,
+    subscriptionStatus: sellerWorkflowStatus?.subscription_status,
+    expiryDate: sellerWorkflowStatus?.subscription_expiry_date,
+  });
+  const studioLocked = !workflowLiveEnabled;
 
   const playTrackInPreview = (track: ICameraVideoTrack, target: "hidden" | "overlay") => {
     const containerId = target === "overlay" ? "creator-preview-overlay" : "creator-preview";
@@ -604,6 +619,34 @@ export default function CreatorStudioPage() {
       mounted = false;
     };
   }, [creatorId]);
+
+  useEffect(() => {
+    let mounted = true;
+
+    const loadSellerWorkflowStatus = async () => {
+      try {
+        const res = await fetch("/api/seller/status", { cache: "no-store" });
+        if (!res.ok) {
+          if (mounted) setSellerWorkflowStatus(null);
+          return;
+        }
+
+        const body = (await res.json()) as { seller?: SellerWorkflowStatus | null };
+        if (!mounted) return;
+        setSellerWorkflowStatus(body.seller ?? null);
+      } catch {
+        if (!mounted) return;
+        setSellerWorkflowStatus(null);
+      }
+    };
+
+    void loadSellerWorkflowStatus();
+    const timer = window.setInterval(() => void loadSellerWorkflowStatus(), 4000);
+    return () => {
+      mounted = false;
+      window.clearInterval(timer);
+    };
+  }, []);
 
   useEffect(() => {
     if (!isLive || !sessionId) return;
@@ -991,8 +1034,8 @@ export default function CreatorStudioPage() {
       return;
     }
 
-    if (!sellerRegistration || sellerRegistration.status !== "validated") {
-      setError("Validation admin obligatoire: statut vendeur non valide.");
+    if (!workflowLiveEnabled) {
+      setError("Votre abonnement vendeur doit etre active.");
       return;
     }
 
@@ -1332,13 +1375,8 @@ export default function CreatorStudioPage() {
   };
 
   const openLivePreview = async () => {
-    if (!sellerRegistration || sellerRegistration.status !== "validated") {
-      setError("Validation admin requise avant previsualisation.");
-      return;
-    }
-
-    if (isForfaitExpired) {
-      setError("Forfait expire. Renouvelle ton forfait pour continuer.");
+    if (!workflowLiveEnabled) {
+      setError("Votre abonnement vendeur doit etre active.");
       return;
     }
 
@@ -1444,10 +1482,8 @@ export default function CreatorStudioPage() {
             >
               {busy && !isLive
                 ? "Ouverture preview..."
-                : isForfaitExpired
-                  ? "Forfait expire"
-                  : studioLocked
-                    ? "Validation admin requise"
+                : studioLocked
+                    ? "Abonnement non actif"
                     : "Previsualiser le live"}
             </button>
 
@@ -1544,21 +1580,21 @@ export default function CreatorStudioPage() {
             <span>Statut vendeur:</span>
             <span
               className={`inline-flex rounded-full px-3 py-1 text-xs font-bold ${
-                sellerStatus === "validated"
+                workflowLiveEnabled
                   ? "bg-emerald-600 text-white"
                   : sellerStatus === "pending"
                     ? "bg-red-600 text-white"
                     : "bg-slate-600 text-white"
               }`}
             >
-              {sellerStatus === "validated" ? "VALIDE" : sellerStatus === "pending" ? "EN ATTENTE" : "REFUSE"}
+              {workflowLiveEnabled ? "ACTIF" : sellerWorkflowStatus?.seller_status?.toUpperCase() || "NON ACTIVE"}
             </span>
           </div>
 
-          {sellerRegistration?.status === "pending" ? (
+          {!workflowLiveEnabled ? (
             <div className="rounded-xl border border-amber-500/60 bg-amber-900/20 p-3 grid gap-2">
               <p className="text-sm text-amber-100">
-                En attente de validation admin pour debloquer les fonctionnalites du studio live.
+                Votre abonnement vendeur doit etre active.
               </p>
               <button
                 type="button"
@@ -1570,7 +1606,7 @@ export default function CreatorStudioPage() {
             </div>
           ) : null}
 
-          {isForfaitExpired ? (
+          {sellerWorkflowStatus?.subscription_status === "expired" ? (
             <div className="rounded-xl border border-rose-500/60 bg-rose-900/20 p-3 grid gap-2">
               <p className="text-sm text-rose-100">Ton forfait est expire. Renouvelle-le pour reactiver les options du studio.</p>
               <Link href="/vendeur/forfait" className="w-full sm:w-auto rounded-xl bg-blue-600 px-4 py-2 font-semibold text-center">
@@ -1579,9 +1615,9 @@ export default function CreatorStudioPage() {
             </div>
           ) : null}
 
-          {sellerRegistration && sellerRegistration.status !== "validated" ? (
+          {studioLocked ? (
             <p className="text-xs text-amber-200">
-              Live bloque tant que le statut vendeur n'est pas VALIDE. Va sur <Link href="/vendeur/statut" className="underline">/vendeur/statut</Link>.
+              Live bloque tant que le statut vendeur n'est pas ACTIF et paye. Va sur <Link href="/vendeur/statut" className="underline">/vendeur/statut</Link>.
             </p>
           ) : null}
 

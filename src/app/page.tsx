@@ -42,6 +42,13 @@ export default function Page() {
           Deja inscrit ? cliquez ici
         </Link>
 
+        <Link
+          href="/profile"
+          className="mx-auto w-full max-w-md rounded-xl border border-emerald-500/50 bg-gradient-to-b from-emerald-700 to-emerald-900 px-4 py-4 text-lg font-extrabold tracking-wide shadow-[0_10px_28px_rgba(0,0,0,.6)]"
+        >
+          Mon profil / Devenir vendeur
+        </Link>
+
         <p className="text-3xl leading-tight text-amber-50/95">PITCH LIVE Le meilleur endroit pour vos live vente, no limites !</p>
       </section>
     </main>
