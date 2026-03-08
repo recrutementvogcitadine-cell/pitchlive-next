@@ -310,7 +310,8 @@ export default function CreatorStudioPage() {
 
   const creatorId = "main-creator";
   const sellerStatus = sellerRegistration?.status ?? "pending";
-  const studioLocked = sellerStatus !== "validated";
+  const isForfaitExpired = Boolean(sellerRegistration?.planEndAt) && new Date(String(sellerRegistration?.planEndAt)).getTime() <= Date.now();
+  const studioLocked = sellerStatus !== "validated" || isForfaitExpired;
 
   const playTrackInPreview = (track: ICameraVideoTrack, target: "hidden" | "overlay") => {
     const containerId = target === "overlay" ? "creator-preview-overlay" : "creator-preview";
@@ -1311,6 +1312,11 @@ export default function CreatorStudioPage() {
       return;
     }
 
+    if (isForfaitExpired) {
+      setError("Forfait expire. Renouvelle ton forfait pour continuer.");
+      return;
+    }
+
     setError(null);
     clearGoLiveCountdown();
     setPreviewOverlayOpen(true);
@@ -1411,7 +1417,13 @@ export default function CreatorStudioPage() {
               disabled={studioLocked || busy || isLive || !sellerRegistration}
               className="rounded-xl bg-fuchsia-600 px-4 py-3 font-bold disabled:opacity-50"
             >
-              {busy && !isLive ? "Ouverture preview..." : studioLocked ? "Validation admin requise" : "Previsualiser le live"}
+              {busy && !isLive
+                ? "Ouverture preview..."
+                : isForfaitExpired
+                  ? "Forfait expire"
+                  : studioLocked
+                    ? "Validation admin requise"
+                    : "Previsualiser le live"}
             </button>
 
             <button
@@ -1526,11 +1538,19 @@ export default function CreatorStudioPage() {
               <button
                 type="button"
                 onClick={openAdminWhatsapp}
-                disabled={studioLocked}
-                className="w-full sm:w-auto rounded-xl bg-emerald-600 px-4 py-2 font-semibold disabled:opacity-50"
+                className="w-full sm:w-auto rounded-xl bg-emerald-600 px-4 py-2 font-semibold"
               >
                 Contacter nous par WhatsApp
               </button>
+            </div>
+          ) : null}
+
+          {isForfaitExpired ? (
+            <div className="rounded-xl border border-rose-500/60 bg-rose-900/20 p-3 grid gap-2">
+              <p className="text-sm text-rose-100">Ton forfait est expire. Renouvelle-le pour reactiver les options du studio.</p>
+              <Link href="/vendeur/forfait" className="w-full sm:w-auto rounded-xl bg-blue-600 px-4 py-2 font-semibold text-center">
+                Renouveler mon forfait
+              </Link>
             </div>
           ) : null}
 
