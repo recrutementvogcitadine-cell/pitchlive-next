@@ -1356,7 +1356,7 @@ export default function DashboardPage() {
             <article id="bloc-vendeurs-inscrits" className="rounded-xl border border-slate-700 bg-slate-800/60 p-4 grid gap-3">
               <div className="flex items-center justify-between gap-2 flex-wrap">
                 <h3 className="font-semibold text-slate-100">Bloc vendeurs inscrits</h3>
-                <Link href="/admin/vendeurs" className="rounded-full bg-sky-700 px-3 py-1.5 text-xs font-semibold">
+                <Link href="/dashboard/validation-vendeurs" className="rounded-full bg-sky-700 px-3 py-1.5 text-xs font-semibold">
                   Ouvrir page complete
                 </Link>
               </div>
@@ -1696,7 +1696,7 @@ export default function DashboardPage() {
             <Link href="/watch" className="rounded-xl border border-slate-600 bg-slate-800 px-3 py-2">Live Watch</Link>
             <Link href="/creator/studio" className="rounded-xl border border-slate-600 bg-slate-800 px-3 py-2">Studio vendeur</Link>
             <Link href="/creator/settings" className="rounded-xl border border-slate-600 bg-slate-800 px-3 py-2">Settings vendeur</Link>
-            <Link href="/admin/vendeurs" className="rounded-xl border border-slate-600 bg-slate-800 px-3 py-2">Validation vendeurs</Link>
+            <Link href="/dashboard/validation-vendeurs" className="rounded-xl border border-slate-600 bg-slate-800 px-3 py-2">Validation vendeurs</Link>
             <Link href="/mur" className="rounded-xl border border-slate-600 bg-slate-800 px-3 py-2">Mur visiteur</Link>
             <Link href="/boutique" className="rounded-xl border border-slate-600 bg-slate-800 px-3 py-2">Boutiques</Link>
             <Link href="/vendeur/inscription" className="rounded-xl border border-slate-600 bg-slate-800 px-3 py-2">Inscription vendeur</Link>

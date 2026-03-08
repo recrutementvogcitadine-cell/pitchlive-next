@@ -202,7 +202,7 @@ export default function VendeurStatutPage() {
 
           <div className="mt-2 rounded-xl border border-slate-700 bg-slate-800/55 p-3 grid gap-2 text-xs text-slate-300">
             <p>Validation vendeur effectuee uniquement par admin.</p>
-            <p>Espace admin local: <Link href="/admin/vendeurs" className="underline">/admin/vendeurs</Link></p>
+            <p>Espace admin local: <Link href="/dashboard/validation-vendeurs" className="underline">/dashboard/validation-vendeurs</Link></p>
           </div>
         </article>
       </section>
