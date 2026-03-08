@@ -114,6 +114,57 @@ const ROLE_FUNCTIONS: Record<DashboardRole, string[]> = {
   agent: ["Monitoring live", "Suivi chat", "Lecture analytics", "Support moderation"],
 };
 
+const ROLE_PARAMETER_BLOCKS: Array<{
+  block: string;
+  description: string;
+  owner: boolean;
+  admin: boolean;
+  agent: boolean;
+}> = [
+  {
+    block: "Bloc Live & Monitoring",
+    description: "Studio, suivi flux realtime, supervision sessions live, alertes trafic",
+    owner: true,
+    admin: true,
+    agent: true,
+  },
+  {
+    block: "Bloc Moderation Vendeurs",
+    description: "Validation, statut, certification, avertissement, ban temporaire/definitif",
+    owner: true,
+    admin: true,
+    agent: false,
+  },
+  {
+    block: "Bloc Moderation Visiteurs",
+    description: "Validation infos, avertissement, ban temporaire/definitif, levee de ban",
+    owner: true,
+    admin: true,
+    agent: true,
+  },
+  {
+    block: "Bloc Equipe & Roles",
+    description: "Attribution/retrait des roles, gestion des privileges d'acces dashboard",
+    owner: true,
+    admin: true,
+    agent: false,
+  },
+  {
+    block: "Bloc Tarification",
+    description: "Gestion forfaits vendeur (jour/semaine/mois), mode 0 FCFA, reinitialisation",
+    owner: true,
+    admin: true,
+    agent: false,
+  },
+  {
+    block: "Bloc Export & Audit",
+    description: "Export CSV analytics, lecture historique d'activite et alertes",
+    owner: true,
+    admin: true,
+    agent: true,
+  },
+];
+
 function formatRelativeDate(iso: string) {
   const target = new Date(iso).getTime();
   const now = Date.now();
@@ -1353,6 +1404,29 @@ export default function DashboardPage() {
             <div className="rounded-xl border border-yellow-500/60 bg-yellow-900/20 p-3">
               <p className="font-bold text-yellow-200">Agent (Jaune)</p>
               <p className="mt-1 text-yellow-100/90">{ROLE_FUNCTIONS.agent.join(" • ")}</p>
+            </div>
+          </div>
+
+          <div className="rounded-xl border border-slate-700 bg-slate-800/60 p-3 grid gap-3">
+            <p className="text-sm font-semibold text-slate-100">Attribution des roles par bloc de parametres</p>
+            <div className="grid gap-2">
+              {ROLE_PARAMETER_BLOCKS.map((item) => (
+                <article key={item.block} className="rounded-lg border border-slate-700 bg-slate-900/70 p-3 grid gap-2">
+                  <p className="text-sm font-semibold text-slate-100">{item.block}</p>
+                  <p className="text-xs text-slate-300">{item.description}</p>
+                  <div className="flex flex-wrap gap-2 text-xs">
+                    <span className={`rounded-full px-2.5 py-1 font-semibold ${item.owner ? "bg-red-600 text-white" : "bg-slate-700 text-slate-300"}`}>
+                      Owner {item.owner ? "autorise" : "non"}
+                    </span>
+                    <span className={`rounded-full px-2.5 py-1 font-semibold ${item.admin ? "bg-orange-500 text-white" : "bg-slate-700 text-slate-300"}`}>
+                      Admin {item.admin ? "autorise" : "non"}
+                    </span>
+                    <span className={`rounded-full px-2.5 py-1 font-semibold ${item.agent ? "bg-yellow-400 text-slate-950" : "bg-slate-700 text-slate-300"}`}>
+                      Agent {item.agent ? "autorise" : "non"}
+                    </span>
+                  </div>
+                </article>
+              ))}
             </div>
           </div>
 
