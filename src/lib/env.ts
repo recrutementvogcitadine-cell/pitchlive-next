@@ -4,7 +4,7 @@ export const env = {
   supabaseAnonKey: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "",
   agoraAppId: process.env.NEXT_PUBLIC_AGORA_APP_ID ?? "",
   sellerStoreUrl: process.env.NEXT_PUBLIC_SELLER_STORE_URL ?? "",
-  sellerWhatsapp: process.env.NEXT_PUBLIC_SELLER_WHATSAPP ?? "",
+  sellerWhatsapp: process.env.NEXT_PUBLIC_SELLER_WHATSAPP ?? "+2250504007000",
   webPushPublicKey: process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY ?? "",
 };
 
