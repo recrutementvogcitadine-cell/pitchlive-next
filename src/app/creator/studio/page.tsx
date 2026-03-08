@@ -478,6 +478,24 @@ export default function CreatorStudioPage() {
         const parsed = JSON.parse(rawRegistration) as SellerRegistration;
         setSellerRegistration(parsed);
 
+        if (parsed.status === "validated") {
+          // Validated sellers automatically keep both seller and visitor capabilities.
+          window.localStorage.setItem("pitchlive.access", JSON.stringify({ visitor: true, seller: true }));
+          window.localStorage.setItem(
+            "pitchlive.viewer",
+            JSON.stringify({
+              id: parsed.id,
+              username: `${parsed.firstName} ${parsed.lastName}`.trim(),
+              firstName: parsed.firstName,
+              lastName: parsed.lastName,
+              phone: parsed.phone,
+              role: "seller+visitor",
+              status: "validated",
+              validatedBy: "admin",
+            })
+          );
+        }
+
         if (parsed.status === "refused") {
           window.localStorage.setItem("pitchlive.access", JSON.stringify({ visitor: false, seller: false }));
           window.location.href = "/vendeur/inscription";
