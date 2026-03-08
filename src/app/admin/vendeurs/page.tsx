@@ -1,6 +1,17 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { createClient as createSupabaseClient } from "@/lib/supabase/client";
+
+const SELLER_STATUS_TAG_PREFIX = "SELLER_STATUS:";
+
+type SellerProfileRow = {
+  seller_id: string;
+  store_name: string;
+  tagline: string;
+  whatsapp_number: string;
+  updated_at: string;
+};
 
 type SellerRegistration = {
   id: string;
@@ -48,6 +59,19 @@ function moderationLabel(input: { bannedPermanently?: boolean; bannedUntil?: str
   return "AUCUN BAN";
 }
 
+function parseStatusFromTagline(tagline?: string | null): SellerRegistration["status"] {
+  const value = String(tagline ?? "").trim();
+  if (!value.startsWith(SELLER_STATUS_TAG_PREFIX)) return "pending";
+  const status = value.slice(SELLER_STATUS_TAG_PREFIX.length).split("|")[0].trim();
+  if (status === "validated") return "validated";
+  if (status === "refused") return "refused";
+  return "pending";
+}
+
+function buildStatusTagline(status: SellerRegistration["status"]) {
+  return `${SELLER_STATUS_TAG_PREFIX}${status}`;
+}
+
 export default function AdminVendeursPage() {
   const [isAuthed, setIsAuthed] = useState(false);
   const [pin, setPin] = useState("");
@@ -58,17 +82,87 @@ export default function AdminVendeursPage() {
 
   const ADMIN_AUTH_KEY = "pitchlive.admin.auth";
 
-  const loadRegistration = () => {
+  const loadRegistration = async () => {
     const raw = window.localStorage.getItem("pitchlive.seller.registration");
-    if (!raw) {
-      setRegistration(null);
-      return;
+    let localRegistration: SellerRegistration | null = null;
+    if (raw) {
+      try {
+        localRegistration = JSON.parse(raw) as SellerRegistration;
+        setRegistration(localRegistration);
+      } catch {
+        localRegistration = null;
+        setRegistration(null);
+      }
     }
 
     try {
-      setRegistration(JSON.parse(raw) as SellerRegistration);
+      const supabase = createSupabaseClient();
+      const { data, error } = await supabase
+        .from("seller_store_profiles")
+        .select("seller_id,store_name,tagline,whatsapp_number,updated_at")
+        .ilike("tagline", `${SELLER_STATUS_TAG_PREFIX}%`)
+        .order("updated_at", { ascending: false })
+        .limit(1)
+        .maybeSingle<SellerProfileRow>();
+
+      if (!error && data) {
+        const fallbackIso = new Date().toISOString();
+        const sharedRegistration: SellerRegistration = {
+          id: data.seller_id || "main-creator",
+          firstName: "Vendeur",
+          lastName: "",
+          storeName: data.store_name || "Boutique",
+          phone: data.whatsapp_number || "",
+          plan: "jour",
+          planStartAt: data.updated_at || fallbackIso,
+          planEndAt: data.updated_at || fallbackIso,
+          status: parseStatusFromTagline(data.tagline),
+          createdAt: data.updated_at || fallbackIso,
+          lastModerationNote: data.tagline || "Demande recue",
+        };
+        setRegistration(sharedRegistration);
+        window.localStorage.setItem("pitchlive.seller.registration", JSON.stringify(sharedRegistration));
+        return;
+      }
     } catch {
-      setRegistration(null);
+      // Keep fallback paths below.
+    }
+
+    try {
+      const res = await fetch(`/api/seller/profile?sellerId=${encodeURIComponent("main-creator")}`, { cache: "no-store" });
+      const body = (await res.json()) as {
+        source?: string;
+        profile?: {
+          sellerId?: string;
+          storeName?: string;
+          tagline?: string;
+          whatsappNumber?: string;
+        } | null;
+      };
+
+      if (!body?.profile) {
+        setRegistration(localRegistration);
+        return;
+      }
+
+      const nowIso = new Date().toISOString();
+      const next: SellerRegistration = {
+        id: body.profile.sellerId || "main-creator",
+        firstName: "Vendeur",
+        lastName: "",
+        storeName: body.profile.storeName || "Boutique",
+        phone: body.profile.whatsappNumber || "",
+        plan: "jour",
+        planStartAt: nowIso,
+        planEndAt: nowIso,
+        status: parseStatusFromTagline(body.profile.tagline),
+        createdAt: nowIso,
+        lastModerationNote: body.profile.tagline || "Demande recue",
+      };
+      setRegistration(next);
+      window.localStorage.setItem("pitchlive.seller.registration", JSON.stringify(next));
+    } catch {
+      setRegistration(localRegistration);
     }
   };
 
@@ -95,7 +189,7 @@ export default function AdminVendeursPage() {
 
   useEffect(() => {
     if (!isAuthed) return;
-    loadRegistration();
+    void loadRegistration();
     loadVisitor();
   }, [isAuthed]);
 
@@ -138,6 +232,32 @@ export default function AdminVendeursPage() {
   const saveSeller = (next: SellerRegistration) => {
     setRegistration(next);
     window.localStorage.setItem("pitchlive.seller.registration", JSON.stringify(next));
+
+    const supabase = createSupabaseClient();
+    void supabase
+      .from("seller_store_profiles")
+      .upsert(
+        {
+          seller_id: next.id,
+          store_name: next.storeName,
+          tagline: buildStatusTagline(next.status),
+          whatsapp_number: next.phone || "22500000000",
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: "seller_id" }
+      )
+      .catch(() => undefined);
+
+    void fetch("/api/seller/profile", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        sellerId: next.id,
+        storeName: next.storeName,
+        tagline: buildStatusTagline(next.status),
+        whatsappNumber: next.phone || "22500000000",
+      }),
+    }).catch(() => undefined);
   };
 
   const saveVisitor = (next: VisitorProfile) => {
@@ -360,7 +480,7 @@ export default function AdminVendeursPage() {
               <button type="button" onClick={() => setStatus("refused")} className="rounded-full bg-rose-700 px-3 py-2 text-sm font-semibold">
                 Refuser
               </button>
-              <button type="button" onClick={loadRegistration} className="rounded-full bg-slate-700 px-3 py-2 text-sm font-semibold">
+              <button type="button" onClick={() => void loadRegistration()} className="rounded-full bg-slate-700 px-3 py-2 text-sm font-semibold">
                 Recharger
               </button>
             </div>

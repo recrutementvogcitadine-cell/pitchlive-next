@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { env } from "@/lib/env";
+import { createClient as createSupabaseClient } from "@/lib/supabase/client";
 
 type SellerFormState = {
   nom: string;
@@ -163,16 +164,34 @@ export default function InscriptionVendeurPage() {
       window.localStorage.setItem(SELLER_REGISTRATIONS_KEY, JSON.stringify(nextRegistrations));
 
       // Shared persistence so admin dashboard can see requests across devices.
+      const statusTagline = buildStatusTag("pending");
+
       await fetch("/api/seller/profile", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           sellerId: sellerRegistration.id,
           storeName: sellerRegistration.storeName,
-          tagline: buildStatusTag("pending"),
+          tagline: statusTagline,
           whatsappNumber: sellerRegistration.phone,
         }),
       }).catch(() => undefined);
+
+      // Client-side backup write for environments where server service-role key is missing.
+      const supabase = createSupabaseClient();
+      await supabase
+        .from("seller_store_profiles")
+        .upsert(
+          {
+            seller_id: sellerRegistration.id,
+            store_name: sellerRegistration.storeName,
+            tagline: statusTagline,
+            whatsapp_number: sellerRegistration.phone,
+            updated_at: new Date().toISOString(),
+          },
+          { onConflict: "seller_id" }
+        )
+        .catch(() => undefined);
 
       // Pending sellers can access studio UI, but live actions remain locked until admin validation.
       window.localStorage.setItem("pitchlive.access", JSON.stringify({ visitor: false, seller: true }));
