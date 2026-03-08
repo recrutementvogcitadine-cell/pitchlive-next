@@ -201,8 +201,12 @@ export default function DashboardPage() {
   const [teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
   const [teamBusy, setTeamBusy] = useState(false);
   const [teamError, setTeamError] = useState<string | null>(null);
+  const [teamInfo, setTeamInfo] = useState<string | null>(null);
   const [teamCanManage, setTeamCanManage] = useState(false);
   const [roleSavingUserId, setRoleSavingUserId] = useState<string | null>(null);
+  const [quickAssignEmail, setQuickAssignEmail] = useState("");
+  const [quickAssignRole, setQuickAssignRole] = useState<DashboardRole>("agent");
+  const [quickAssignBusy, setQuickAssignBusy] = useState(false);
   const [pricingDraft, setPricingDraft] = useState<SellerPlanPricing>(DEFAULT_SELLER_PRICING);
   const [pricingInfo, setPricingInfo] = useState<string | null>(null);
 
@@ -299,6 +303,7 @@ export default function DashboardPage() {
   const loadTeamMembers = async () => {
     setTeamBusy(true);
     setTeamError(null);
+    setTeamInfo(null);
     try {
       const res = await fetch("/api/dashboard/team", { cache: "no-store" });
       const body = (await res.json().catch(() => ({}))) as {
@@ -331,6 +336,7 @@ export default function DashboardPage() {
 
     setRoleSavingUserId(userId);
     setTeamError(null);
+    setTeamInfo(null);
     try {
       const res = await fetch("/api/dashboard/team", {
         method: "POST",
@@ -348,6 +354,34 @@ export default function DashboardPage() {
       setTeamError(message);
     } finally {
       setRoleSavingUserId(null);
+    }
+  };
+
+  const assignRoleByEmail = async () => {
+    if (!teamCanManage || !quickAssignEmail.trim()) return;
+
+    setQuickAssignBusy(true);
+    setTeamError(null);
+    setTeamInfo(null);
+    try {
+      const res = await fetch("/api/dashboard/team", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: quickAssignEmail.trim(), role: quickAssignRole }),
+      });
+      const body = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string };
+      if (!res.ok || !body.ok) {
+        throw new Error(body.error || "Attribution du role impossible.");
+      }
+
+      setTeamInfo(`Role ${quickAssignRole.toUpperCase()} attribue a ${quickAssignEmail.trim()}.`);
+      setQuickAssignEmail("");
+      await loadTeamMembers();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Attribution du role impossible.";
+      setTeamError(message);
+    } finally {
+      setQuickAssignBusy(false);
     }
   };
 
@@ -937,11 +971,45 @@ export default function DashboardPage() {
           </div>
 
           {teamError ? <p className="text-sm text-rose-300">Erreur equipe: {teamError}</p> : null}
+          {teamInfo ? <p className="text-sm text-emerald-300">{teamInfo}</p> : null}
           {!teamCanManage ? (
             <p className="text-sm text-slate-300">
               Ton role peut consulter le dashboard, mais la gestion des roles est reservee au proprietaire/admin.
             </p>
           ) : null}
+
+          <div className="rounded-xl border border-slate-700 bg-slate-800/60 p-3 grid gap-3">
+            <p className="text-sm font-semibold text-slate-100">Creer / attribuer un role par email</p>
+            <div className="grid md:grid-cols-[1fr_auto_auto] gap-2">
+              <input
+                type="email"
+                value={quickAssignEmail}
+                onChange={(event) => setQuickAssignEmail(event.target.value)}
+                placeholder="email@exemple.com"
+                className="rounded-xl border border-slate-600 bg-slate-900 px-3 py-2 text-sm outline-none"
+              />
+              <select
+                value={quickAssignRole}
+                onChange={(event) => setQuickAssignRole(event.target.value as DashboardRole)}
+                className="rounded-xl border border-slate-600 bg-slate-900 px-3 py-2 text-sm outline-none"
+              >
+                <option value="owner">Proprietaire</option>
+                <option value="admin">Admin</option>
+                <option value="agent">Agent</option>
+              </select>
+              <button
+                type="button"
+                disabled={!teamCanManage || quickAssignBusy || !quickAssignEmail.trim()}
+                onClick={() => void assignRoleByEmail()}
+                className="rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+              >
+                {quickAssignBusy ? "Attribution..." : "Creer role"}
+              </button>
+            </div>
+            <p className="text-xs text-slate-400">
+              Ce bouton affecte un role a un compte existant via son email (et cree la fiche role si besoin).
+            </p>
+          </div>
 
           <div className="grid gap-2 max-h-96 overflow-y-auto pr-1">
             {teamMembers.length ? (

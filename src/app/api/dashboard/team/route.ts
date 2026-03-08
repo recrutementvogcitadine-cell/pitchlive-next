@@ -10,6 +10,7 @@ type UsersRow = {
 
 type TeamBody = {
   userId?: string;
+  email?: string;
   role?: "owner" | "admin" | "agent" | null;
 };
 
@@ -91,11 +92,12 @@ export async function POST(req: Request) {
     }
 
     const body = (await req.json()) as TeamBody;
-    const userId = (body.userId ?? "").trim();
+    let userId = (body.userId ?? "").trim();
+    const email = (body.email ?? "").trim().toLowerCase();
     const nextRole = body.role ?? null;
 
-    if (!userId) {
-      return NextResponse.json({ ok: false, error: "userId requis" }, { status: 400 });
+    if (!userId && !email) {
+      return NextResponse.json({ ok: false, error: "userId ou email requis" }, { status: 400 });
     }
 
     if (nextRole !== "owner" && nextRole !== "admin" && nextRole !== "agent" && nextRole !== null) {
@@ -111,24 +113,41 @@ export async function POST(req: Request) {
       return NextResponse.json({ ok: false, error: "service role missing" }, { status: 503 });
     }
 
+    if (!userId && email) {
+      const authUsers = await admin.auth.admin.listUsers({ page: 1, perPage: 1000 });
+      const matched = (authUsers.data.users ?? []).find((item) => (item.email ?? "").toLowerCase() === email);
+      if (!matched?.id) {
+        return NextResponse.json({ ok: false, error: "aucun compte trouve pour cet email" }, { status: 404 });
+      }
+      userId = matched.id;
+    }
+
     const { data: targetRow } = await admin
       .from("users")
       .select("id,role")
       .eq("id", userId)
       .maybeSingle<UsersRow>();
 
-    if (!targetRow?.id) {
-      return NextResponse.json({ ok: false, error: "utilisateur introuvable" }, { status: 404 });
-    }
-
-    if (caller.role !== "owner" && (targetRow.role ?? "").toLowerCase() === "owner") {
+    if (caller.role !== "owner" && (targetRow?.role ?? "").toLowerCase() === "owner") {
       return NextResponse.json({ ok: false, error: "seul le proprietaire peut modifier un proprietaire" }, { status: 403 });
     }
 
-    const { error } = await admin
-      .from("users")
-      .update({ role: nextRole })
-      .eq("id", userId);
+    let error: { message?: string } | null = null;
+    if (targetRow?.id) {
+      const updateRes = await admin
+        .from("users")
+        .update({ role: nextRole })
+        .eq("id", userId);
+      error = updateRes.error;
+    } else {
+      if (nextRole === null) {
+        return NextResponse.json({ ok: false, error: "aucun role a retirer: utilisateur sans fiche" }, { status: 404 });
+      }
+      const insertRes = await admin
+        .from("users")
+        .insert({ id: userId, role: nextRole });
+      error = insertRes.error;
+    }
 
     if (error) {
       return NextResponse.json({ ok: false, error: error.message }, { status: 500 });
