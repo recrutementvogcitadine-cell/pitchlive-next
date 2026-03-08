@@ -14,7 +14,16 @@ type SellerRegistration = {
   planStartAt: string;
   planEndAt: string;
   status: "pending" | "validated" | "refused";
+  certifiedBadge?: boolean;
+  warningCount?: number;
+  bannedUntil?: string | null;
+  bannedPermanently?: boolean;
 };
+
+function isTempBanned(bannedUntil?: string | null) {
+  if (!bannedUntil) return false;
+  return new Date(bannedUntil).getTime() > Date.now();
+}
 
 function formatStatus(status: SellerRegistration["status"]) {
   if (status === "validated") return "VALIDE";
@@ -139,6 +148,24 @@ export default function VendeurStatutPage() {
           <p className={statusClass}>
             Statut: <strong>{formatStatus(registration.status)}</strong>
           </p>
+          {registration.certifiedBadge ? (
+            <p className="text-sky-300">
+              Badge vendeur: <strong>Certifie bleu</strong>
+            </p>
+          ) : null}
+          <p className="text-sm text-slate-300">
+            Avertissements admin: <strong>{registration.warningCount ?? 0}</strong>
+          </p>
+          {registration.bannedPermanently ? (
+            <p className="text-sm text-rose-300">
+              Compte vendeur banni definitivement.
+            </p>
+          ) : null}
+          {isTempBanned(registration.bannedUntil) ? (
+            <p className="text-sm text-rose-300">
+              Compte vendeur suspendu temporairement jusqu'au {new Date(String(registration.bannedUntil)).toLocaleString("fr-FR")}.
+            </p>
+          ) : null}
 
           {registration.status === "validated" ? (
             <div className="grid gap-2 md:grid-cols-2">

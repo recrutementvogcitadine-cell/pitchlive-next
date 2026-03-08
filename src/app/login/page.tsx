@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useState } from "react";
 
 type SellerRegistration = {
@@ -10,6 +11,10 @@ type SellerRegistration = {
   phone: string;
   password?: string;
   status: "pending" | "validated" | "refused";
+  warningCount?: number;
+  bannedUntil?: string | null;
+  bannedPermanently?: boolean;
+  certifiedBadge?: boolean;
 };
 
 type ViewerProfile = {
@@ -20,7 +25,15 @@ type ViewerProfile = {
   phone?: string;
   password?: string;
   status?: string;
+  warningCount?: number;
+  bannedUntil?: string | null;
+  bannedPermanently?: boolean;
 };
+
+function isTempBanned(bannedUntil?: string | null) {
+  if (!bannedUntil) return false;
+  return new Date(bannedUntil).getTime() > Date.now();
+}
 
 function normalizePhone(value: string) {
   return value.replace(/[^\d+]/g, "");
@@ -54,6 +67,16 @@ export default function LoginPage() {
         seller && normalizePhone(seller.phone) === normalizedPhone && String(seller.password ?? "") === password;
 
       if (sellerMatch) {
+        if (seller.bannedPermanently) {
+          setError("Ce compte vendeur est banni definitivement.");
+          return;
+        }
+
+        if (isTempBanned(seller.bannedUntil)) {
+          setError(`Compte vendeur temporairement suspendu jusqu'au ${new Date(String(seller.bannedUntil)).toLocaleString("fr-FR")}.`);
+          return;
+        }
+
         if (seller.status === "validated") {
           window.localStorage.setItem("pitchlive.access", JSON.stringify({ visitor: true, seller: true }));
           window.localStorage.setItem(
@@ -89,6 +112,16 @@ export default function LoginPage() {
         viewer && normalizePhone(viewer.phone ?? "") === normalizedPhone && String(viewer.password ?? "") === password;
 
       if (viewerMatch) {
+        if (viewer.bannedPermanently) {
+          setError("Ce compte visiteur est banni definitivement.");
+          return;
+        }
+
+        if (isTempBanned(viewer.bannedUntil)) {
+          setError(`Compte visiteur temporairement suspendu jusqu'au ${new Date(String(viewer.bannedUntil)).toLocaleString("fr-FR")}.`);
+          return;
+        }
+
         window.localStorage.setItem("pitchlive.access", JSON.stringify({ visitor: true, seller: false }));
         window.location.href = "/mur";
         return;
@@ -107,6 +140,13 @@ export default function LoginPage() {
       <section className="mx-auto max-w-xl grid gap-5">
         <h1 className="text-3xl font-black">Connexion</h1>
         <p className="text-sm text-slate-300">Connecte-toi avec ton numero de telephone et mot de passe.</p>
+
+        <div className="flex items-center justify-between rounded-xl border border-slate-700 bg-slate-900/60 px-3 py-2 text-sm">
+          <span className="text-slate-300">Section connexion des personnes deja inscrites</span>
+          <Link href="/" className="rounded-full bg-slate-700 px-3 py-1.5 font-semibold">
+            ← Retour accueil
+          </Link>
+        </div>
 
         <article className="rounded-2xl border border-slate-700 bg-slate-900/70 p-4 md:p-6 grid gap-4">
           <label className="grid gap-1 text-sm">

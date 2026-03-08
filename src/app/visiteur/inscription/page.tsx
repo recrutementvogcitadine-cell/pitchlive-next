@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useState } from "react";
 
 type FormState = {
@@ -88,6 +89,18 @@ export default function InscriptionVisiteurPage() {
       <section className="mx-auto max-w-xl grid gap-5">
         <h1 className="text-3xl font-black">Inscription visiteur</h1>
         <p className="text-sm text-slate-300">Inscription rapide. Verification SMS possible dans une prochaine version.</p>
+
+        <div className="rounded-xl border border-slate-700 bg-slate-900/60 p-3 flex items-center justify-between gap-2">
+          <span className="text-sm text-slate-300">Deja inscrit ? Connecte-toi ici.</span>
+          <div className="flex items-center gap-2">
+            <Link href="/login" className="rounded-full bg-blue-700 px-3 py-1.5 text-sm font-semibold">
+              Connexion
+            </Link>
+            <Link href="/" className="rounded-full bg-slate-700 px-3 py-1.5 text-sm font-semibold">
+              ← Accueil
+            </Link>
+          </div>
+        </div>
 
         <article className="rounded-2xl border border-slate-700 bg-slate-900/70 p-4 md:p-6 grid gap-4">
           <label className="grid gap-1 text-sm">

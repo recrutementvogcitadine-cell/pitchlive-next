@@ -8,6 +8,12 @@ type ViewerProfile = {
   id: string;
   username: string;
   profileImage?: string;
+  status?: string;
+  validatedBy?: string;
+  warningCount?: number;
+  bannedUntil?: string | null;
+  bannedPermanently?: boolean;
+  lastModerationNote?: string;
 };
 
 type SellerWallProfile = {
@@ -18,6 +24,12 @@ type SellerWallProfile = {
 };
 
 const FOLLOWING_KEY_PREFIX = "pitchlive.following.";
+const ADMIN_AUTH_KEY = "pitchlive.admin.auth";
+
+function isTempBanned(bannedUntil?: string | null) {
+  if (!bannedUntil) return false;
+  return new Date(bannedUntil).getTime() > Date.now();
+}
 
 function getViewerProfile(): ViewerProfile {
   if (typeof window === "undefined") {
@@ -41,6 +53,7 @@ export default function MurPage() {
   const [followedSellers, setFollowedSellers] = useState<SellerWallProfile[]>([]);
   const [loading, setLoading] = useState(true);
   const [savingPhoto, setSavingPhoto] = useState(false);
+  const [adminMode, setAdminMode] = useState(false);
 
   const validatedStores = useMemo(() => getValidatedStores(), []);
 
@@ -51,6 +64,13 @@ export default function MurPage() {
       const profile = getViewerProfile();
       if (mounted) {
         setViewer(profile);
+        setAdminMode(window.sessionStorage.getItem(ADMIN_AUTH_KEY) === "1");
+      }
+
+      if ((profile.bannedPermanently || isTempBanned(profile.bannedUntil)) && window.sessionStorage.getItem(ADMIN_AUTH_KEY) !== "1") {
+        window.localStorage.setItem("pitchlive.access", JSON.stringify({ visitor: false, seller: false }));
+        window.location.href = "/login";
+        return;
       }
 
       if (typeof window === "undefined") {
@@ -182,6 +202,57 @@ export default function MurPage() {
     }
   };
 
+  const saveViewerModeration = (next: ViewerProfile) => {
+    setViewer(next);
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem("pitchlive.viewer", JSON.stringify(next));
+    }
+  };
+
+  const validateVisitorInfos = () => {
+    saveViewerModeration({
+      ...viewer,
+      status: "validated",
+      validatedBy: "admin",
+      lastModerationNote: "Informations visiteur validees depuis le mur",
+    });
+  };
+
+  const warnVisitor = () => {
+    saveViewerModeration({
+      ...viewer,
+      warningCount: (viewer.warningCount ?? 0) + 1,
+      lastModerationNote: "Avertissement admin envoye",
+    });
+  };
+
+  const banVisitorTemporary = () => {
+    saveViewerModeration({
+      ...viewer,
+      bannedUntil: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+      bannedPermanently: false,
+      lastModerationNote: "Ban temporaire 24h",
+    });
+  };
+
+  const banVisitorPermanent = () => {
+    saveViewerModeration({
+      ...viewer,
+      bannedPermanently: true,
+      bannedUntil: null,
+      lastModerationNote: "Ban definitif",
+    });
+  };
+
+  const clearVisitorBan = () => {
+    saveViewerModeration({
+      ...viewer,
+      bannedPermanently: false,
+      bannedUntil: null,
+      lastModerationNote: "Ban leve",
+    });
+  };
+
   return (
     <main className="min-h-screen bg-slate-950 text-slate-100 px-4 py-6 md:p-8">
       <section className="mx-auto max-w-5xl grid gap-6">
@@ -211,6 +282,37 @@ export default function MurPage() {
             </label>
           </div>
         </header>
+
+        {adminMode ? (
+          <article className="rounded-2xl border border-sky-500/45 bg-sky-900/15 p-4 md:p-5 grid gap-3">
+            <h2 className="text-lg font-bold">Moderation visiteur (admin)</h2>
+            <p className="text-sm text-slate-200">
+              Statut: <strong>{(viewer.status || "pending").toUpperCase()}</strong> • Avertissements: <strong>{viewer.warningCount ?? 0}</strong>
+            </p>
+            <p className="text-sm text-slate-200">
+              Ban: <strong>{viewer.bannedPermanently ? "DEFINITIF" : isTempBanned(viewer.bannedUntil) ? `TEMPORAIRE jusqu'au ${new Date(String(viewer.bannedUntil)).toLocaleString("fr-FR")}` : "AUCUN"}</strong>
+            </p>
+            {viewer.lastModerationNote ? <p className="text-xs text-slate-300">Derniere action: {viewer.lastModerationNote}</p> : null}
+
+            <div className="flex flex-wrap gap-2">
+              <button type="button" onClick={validateVisitorInfos} className="rounded-full bg-emerald-600 px-3 py-2 text-sm font-semibold">
+                Valider infos visiteur
+              </button>
+              <button type="button" onClick={warnVisitor} className="rounded-full bg-orange-600 px-3 py-2 text-sm font-semibold">
+                Avertissement
+              </button>
+              <button type="button" onClick={banVisitorTemporary} className="rounded-full bg-rose-700 px-3 py-2 text-sm font-semibold">
+                Ban temporaire
+              </button>
+              <button type="button" onClick={banVisitorPermanent} className="rounded-full bg-red-700 px-3 py-2 text-sm font-semibold">
+                Ban definitif
+              </button>
+              <button type="button" onClick={clearVisitorBan} className="rounded-full bg-cyan-700 px-3 py-2 text-sm font-semibold">
+                Lever ban
+              </button>
+            </div>
+          </article>
+        ) : null}
 
         <article className="rounded-2xl border border-slate-700 bg-slate-900/70 p-4 md:p-6 grid gap-4">
           <div className="flex items-center justify-between gap-3">
