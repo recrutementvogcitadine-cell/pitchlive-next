@@ -160,6 +160,7 @@ export default function InscriptionVendeurPage() {
       window.localStorage.setItem("pitchlive.access", JSON.stringify({ visitor: false, seller: true }));
 
       const summary = [
+        `Lien inscription: ${window.location.origin}/dashboard#bloc-vendeurs-inscrits`,
         "Nouvelle demande vendeur PITCH LIVE",
         `Nom: ${prenom} ${nom}`,
         `Activite: ${activite}`,
