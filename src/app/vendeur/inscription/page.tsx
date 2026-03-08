@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useState } from "react";
 import { env } from "@/lib/env";
 
@@ -183,6 +184,12 @@ export default function InscriptionVendeurPage() {
       <section className="mx-auto max-w-xl grid gap-5">
         <h1 className="text-3xl font-black">Inscription vendeur</h1>
         <p className="text-sm text-slate-300">Choisis ton forfait, puis attends la validation admin (en attente / valide / refuse).</p>
+
+        <div className="flex justify-end">
+          <Link href="/" className="rounded-full bg-slate-700 px-3 py-2 text-sm font-semibold">
+            ← Retour accueil
+          </Link>
+        </div>
 
         <article className="rounded-2xl border border-slate-700 bg-slate-900/70 p-4 md:p-6 grid gap-4">
           <label className="grid gap-1 text-sm">
