@@ -147,7 +147,7 @@ export default function SellerBoutiquePage() {
                     Commander sur WhatsApp
                   </a>
                   {!canOrderOnWhatsapp ? (
-                    <p className="text-xs text-amber-300">Commande WhatsApp reservee aux visiteurs certifies.</p>
+                    <p className="text-xs text-amber-300">Commande WhatsApp reservee aux visiteurs enregistres.</p>
                   ) : null}
                 </div>
               </article>

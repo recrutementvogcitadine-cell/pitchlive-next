@@ -419,7 +419,7 @@ export default function WatchPage() {
 
   const openSellerWhatsApp = () => {
     if (!canOrderOnWhatsapp) {
-      setNotifyToast("Commande WhatsApp reservee aux visiteurs certifies.");
+      setNotifyToast("Commande WhatsApp reservee aux visiteurs enregistres.");
       window.setTimeout(() => setNotifyToast(null), 2200);
       return;
     }
