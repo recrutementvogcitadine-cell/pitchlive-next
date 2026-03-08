@@ -52,6 +52,15 @@ type StudioChatMessage = {
 };
 
 const STUDIO_PRODUCTS_KEY = "pitchlive.studio.products";
+const SELLER_STATUS_TAG_PREFIX = "SELLER_STATUS:";
+
+function parseStatusFromTagline(tagline?: string | null): SellerRegistration["status"] | null {
+  const value = String(tagline ?? "").trim();
+  if (!value.startsWith(SELLER_STATUS_TAG_PREFIX)) return null;
+  const status = value.slice(SELLER_STATUS_TAG_PREFIX.length).split("|")[0].trim();
+  if (status === "pending" || status === "validated" || status === "refused") return status;
+  return null;
+}
 
 function isMobileRuntime() {
   if (typeof navigator === "undefined") return false;
@@ -478,6 +487,22 @@ export default function CreatorStudioPage() {
       try {
         const parsed = JSON.parse(rawRegistration) as SellerRegistration;
         setSellerRegistration(parsed);
+
+        void (async () => {
+          try {
+            const res = await fetch(`/api/seller/profile?sellerId=${encodeURIComponent(parsed.id)}`, { cache: "no-store" });
+            const body = (await res.json()) as { profile?: { tagline?: string } | null; source?: string };
+            if (!body?.profile || body.source !== "database") return;
+            const statusFromServer = parseStatusFromTagline(body.profile.tagline);
+            if (!statusFromServer || statusFromServer === parsed.status) return;
+
+            const merged = { ...parsed, status: statusFromServer };
+            setSellerRegistration(merged);
+            window.localStorage.setItem("pitchlive.seller.registration", JSON.stringify(merged));
+          } catch {
+            // keep local status if remote sync fails.
+          }
+        })();
 
         if (parsed.status === "validated") {
           // Validated sellers automatically keep both seller and visitor capabilities.

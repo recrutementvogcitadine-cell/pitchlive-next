@@ -30,6 +30,7 @@ type SellerPlanPricing = {
 
 const SELLER_PRICING_KEY = "pitchlive.seller.planPricing.v1";
 const SELLER_REGISTRATIONS_KEY = "pitchlive.seller.registrations.v1";
+const SELLER_STATUS_TAG_PREFIX = "SELLER_STATUS:";
 const DEFAULT_SELLER_PRICING: SellerPlanPricing = {
   jour: 5000,
   semaine: 25000,
@@ -55,6 +56,10 @@ function computeEndDate(forfait: "jour" | "semaine" | "mois") {
 
 function formatCfa(value: number) {
   return `${Math.max(0, Math.floor(value)).toLocaleString("fr-FR")} F CFA`;
+}
+
+function buildStatusTag(status: "pending" | "validated" | "refused") {
+  return `${SELLER_STATUS_TAG_PREFIX}${status}`;
 }
 
 export default function InscriptionVendeurPage() {
@@ -156,6 +161,18 @@ export default function InscriptionVendeurPage() {
         ...registrations.filter((item) => item.id !== sellerRegistration.id),
       ];
       window.localStorage.setItem(SELLER_REGISTRATIONS_KEY, JSON.stringify(nextRegistrations));
+
+      // Shared persistence so admin dashboard can see requests across devices.
+      await fetch("/api/seller/profile", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          sellerId: sellerRegistration.id,
+          storeName: sellerRegistration.storeName,
+          tagline: buildStatusTag("pending"),
+          whatsappNumber: sellerRegistration.phone,
+        }),
+      }).catch(() => undefined);
 
       // Pending sellers can access studio UI, but live actions remain locked until admin validation.
       window.localStorage.setItem("pitchlive.access", JSON.stringify({ visitor: false, seller: true }));

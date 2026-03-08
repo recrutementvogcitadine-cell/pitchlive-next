@@ -85,6 +85,7 @@ const SELLER_PRICING_KEY = "pitchlive.seller.planPricing.v1";
 const SELLER_REGISTRATIONS_KEY = "pitchlive.seller.registrations.v1";
 const SELLER_REGISTRATION_KEY = "pitchlive.seller.registration";
 const VISITOR_PROFILE_KEY = "pitchlive.viewer";
+const SELLER_STATUS_TAG_PREFIX = "SELLER_STATUS:";
 const MODERATION_DURATIONS: DurationOption[] = [
   { label: "1 jour", hours: 24 },
   { label: "3 jours", hours: 24 * 3 },
@@ -222,6 +223,19 @@ function moderationLabel(input: { bannedPermanently?: boolean; bannedUntil?: str
     return `BANNI TEMPORAIRE jusqu'au ${new Date(String(input.bannedUntil)).toLocaleString("fr-FR")}`;
   }
   return "AUCUN BAN";
+}
+
+function parseStatusFromTagline(tagline?: string | null): SellerRegistration["status"] {
+  const value = String(tagline ?? "").trim();
+  if (!value.startsWith(SELLER_STATUS_TAG_PREFIX)) return "pending";
+  const status = value.slice(SELLER_STATUS_TAG_PREFIX.length).split("|")[0].trim();
+  if (status === "validated") return "validated";
+  if (status === "refused") return "refused";
+  return "pending";
+}
+
+function buildStatusTagline(status: SellerRegistration["status"]) {
+  return `${SELLER_STATUS_TAG_PREFIX}${status}`;
 }
 
 function makeLast15MinSlots() {
@@ -405,7 +419,47 @@ export default function DashboardPage() {
       }
     }
 
-    setSellerRegistrations(loadedSellers);
+    if (loadedSellers.length) {
+      setSellerRegistrations(loadedSellers);
+    } else {
+      void (async () => {
+        try {
+          const res = await fetch(`/api/seller/profile?sellerId=${encodeURIComponent("main-creator")}`, { cache: "no-store" });
+          const body = (await res.json()) as {
+            source?: string;
+            profile?: {
+              sellerId?: string;
+              storeName?: string;
+              tagline?: string;
+              whatsappNumber?: string;
+            } | null;
+          };
+
+          if (!body?.profile || body.source !== "database") {
+            setSellerRegistrations([]);
+            return;
+          }
+
+          const mapped: SellerRegistration = {
+            id: body.profile.sellerId || "main-creator",
+            firstName: "Vendeur",
+            lastName: "",
+            storeName: body.profile.storeName || "Boutique",
+            phone: body.profile.whatsappNumber || "",
+            plan: "jour",
+            planStartAt: new Date().toISOString(),
+            planEndAt: new Date().toISOString(),
+            status: parseStatusFromTagline(body.profile.tagline),
+            createdAt: new Date().toISOString(),
+            lastModerationNote: body.profile.tagline || "Demande recue",
+          };
+
+          setSellerRegistrations([mapped]);
+        } catch {
+          setSellerRegistrations([]);
+        }
+      })();
+    }
 
     const visitorRaw = window.localStorage.getItem(VISITOR_PROFILE_KEY);
     if (!visitorRaw) {
@@ -432,6 +486,17 @@ export default function DashboardPage() {
     if (typeof window !== "undefined") {
       window.localStorage.setItem(SELLER_REGISTRATION_KEY, JSON.stringify(next));
     }
+
+    void fetch("/api/seller/profile", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        sellerId: next.id,
+        storeName: next.storeName,
+        tagline: buildStatusTagline(next.status),
+        whatsappNumber: next.phone || "22500000000",
+      }),
+    }).catch(() => undefined);
   };
 
   const saveVisitorModeration = (next: VisitorProfile) => {
