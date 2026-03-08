@@ -1155,6 +1155,15 @@ export default function DashboardPage() {
             <span>Derniere sync: {lastRefreshAt ? new Date(lastRefreshAt).toLocaleTimeString("fr-FR") : "--:--:--"}</span>
           </div>
 
+          <div className="flex flex-wrap gap-2">
+            <a href="#bloc-vendeurs-inscrits" className="rounded-full bg-sky-700 px-3 py-1.5 text-xs font-semibold text-white">
+              Aller au bloc vendeurs inscrits
+            </a>
+            <a href="#bloc-visiteurs-inscrits" className="rounded-full bg-indigo-700 px-3 py-1.5 text-xs font-semibold text-white">
+              Aller au bloc visiteurs inscrits
+            </a>
+          </div>
+
           <div className="rounded-xl border border-slate-700 bg-slate-950/50 p-3 grid gap-2">
             <div className="flex items-center justify-between gap-2">
               <p className="text-sm font-semibold">Centre d'alertes equipe</p>
@@ -1252,7 +1261,7 @@ export default function DashboardPage() {
 
         <section className="rounded-2xl border border-slate-700 bg-slate-900/70 p-4 md:p-5 grid gap-4">
           <div className="flex items-center justify-between gap-3 flex-wrap">
-            <h2 className="font-semibold text-slate-100">Gestion vendeurs et visiteurs</h2>
+            <h2 className="font-semibold text-slate-100">Blocs inscrits: vendeurs et visiteurs</h2>
             <button
               type="button"
               onClick={loadModerationProfiles}
@@ -1279,9 +1288,9 @@ export default function DashboardPage() {
           {moderationInfo ? <p className="text-sm text-emerald-300">{moderationInfo}</p> : null}
 
           <div className="grid lg:grid-cols-2 gap-4">
-            <article className="rounded-xl border border-slate-700 bg-slate-800/60 p-4 grid gap-3">
+            <article id="bloc-vendeurs-inscrits" className="rounded-xl border border-slate-700 bg-slate-800/60 p-4 grid gap-3">
               <div className="flex items-center justify-between gap-2 flex-wrap">
-                <h3 className="font-semibold text-slate-100">Section gestion vendeurs</h3>
+                <h3 className="font-semibold text-slate-100">Bloc vendeurs inscrits</h3>
                 <Link href="/admin/vendeurs" className="rounded-full bg-sky-700 px-3 py-1.5 text-xs font-semibold">
                   Ouvrir page complete
                 </Link>
@@ -1335,9 +1344,9 @@ export default function DashboardPage() {
               )}
             </article>
 
-            <article className="rounded-xl border border-slate-700 bg-slate-800/60 p-4 grid gap-3">
+            <article id="bloc-visiteurs-inscrits" className="rounded-xl border border-slate-700 bg-slate-800/60 p-4 grid gap-3">
               <div className="flex items-center justify-between gap-2 flex-wrap">
-                <h3 className="font-semibold text-slate-100">Section gestion visiteurs</h3>
+                <h3 className="font-semibold text-slate-100">Bloc visiteurs inscrits</h3>
                 <Link href="/mur" className="rounded-full bg-sky-700 px-3 py-1.5 text-xs font-semibold">
                   Ouvrir mur visiteur
                 </Link>
