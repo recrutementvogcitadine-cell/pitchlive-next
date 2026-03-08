@@ -43,10 +43,54 @@ type SellerPlanPricing = {
   mois: number;
 };
 
+type SellerRegistration = {
+  id: string;
+  firstName: string;
+  lastName: string;
+  storeName: string;
+  phone: string;
+  plan: "jour" | "semaine" | "mois";
+  status: "pending" | "validated" | "refused";
+  validatedBy?: string;
+  certifiedBadge?: boolean;
+  warningCount?: number;
+  bannedUntil?: string | null;
+  bannedPermanently?: boolean;
+  lastModerationNote?: string;
+};
+
+type VisitorProfile = {
+  id: string;
+  username: string;
+  firstName?: string;
+  lastName?: string;
+  phone?: string;
+  status?: string;
+  validatedBy?: string;
+  warningCount?: number;
+  bannedUntil?: string | null;
+  bannedPermanently?: boolean;
+  lastModerationNote?: string;
+};
+
+type DurationOption = {
+  label: string;
+  hours: number;
+};
+
 const ADMIN_AUTH_KEY = "pitchlive.admin.auth";
 const DASHBOARD_SOUND_KEY = "pitchlive.admin.dashboard.sound";
 const DASHBOARD_SOUND_MODE_KEY = "pitchlive.admin.dashboard.sound.mode";
 const SELLER_PRICING_KEY = "pitchlive.seller.planPricing.v1";
+const SELLER_REGISTRATIONS_KEY = "pitchlive.seller.registrations.v1";
+const SELLER_REGISTRATION_KEY = "pitchlive.seller.registration";
+const VISITOR_PROFILE_KEY = "pitchlive.viewer";
+const MODERATION_DURATIONS: DurationOption[] = [
+  { label: "1 jour", hours: 24 },
+  { label: "3 jours", hours: 24 * 3 },
+  { label: "7 jours", hours: 24 * 7 },
+  { label: "30 jours", hours: 24 * 30 },
+];
 const DEFAULT_SELLER_PRICING: SellerPlanPricing = {
   jour: 5000,
   semaine: 25000,
@@ -114,6 +158,19 @@ function normalizePlanPrice(value: string) {
 
 function formatCfa(value: number) {
   return `${Math.max(0, Math.floor(value)).toLocaleString("fr-FR")} F CFA`;
+}
+
+function isTempBanned(bannedUntil?: string | null) {
+  if (!bannedUntil) return false;
+  return new Date(bannedUntil).getTime() > Date.now();
+}
+
+function moderationLabel(input: { bannedPermanently?: boolean; bannedUntil?: string | null }) {
+  if (input.bannedPermanently) return "BANNI DEFINITIF";
+  if (isTempBanned(input.bannedUntil)) {
+    return `BANNI TEMPORAIRE jusqu'au ${new Date(String(input.bannedUntil)).toLocaleString("fr-FR")}`;
+  }
+  return "AUCUN BAN";
 }
 
 function makeLast15MinSlots() {
@@ -209,6 +266,10 @@ export default function DashboardPage() {
   const [quickAssignBusy, setQuickAssignBusy] = useState(false);
   const [pricingDraft, setPricingDraft] = useState<SellerPlanPricing>(DEFAULT_SELLER_PRICING);
   const [pricingInfo, setPricingInfo] = useState<string | null>(null);
+  const [sellerRegistrations, setSellerRegistrations] = useState<SellerRegistration[]>([]);
+  const [visitorProfile, setVisitorProfile] = useState<VisitorProfile | null>(null);
+  const [moderationHours, setModerationHours] = useState<number>(24);
+  const [moderationInfo, setModerationInfo] = useState<string | null>(null);
 
   useEffect(() => {
     const existing = window.sessionStorage.getItem(ADMIN_AUTH_KEY);
@@ -257,11 +318,79 @@ export default function DashboardPage() {
       setTeamMembers([]);
       setTeamCanManage(false);
       setTeamError(null);
+      setSellerRegistrations([]);
+      setVisitorProfile(null);
       return;
     }
 
     void loadTeamMembers();
+    loadModerationProfiles();
   }, [isAuthed]);
+
+  const loadModerationProfiles = () => {
+    if (typeof window === "undefined") return;
+
+    const sellersRaw = window.localStorage.getItem(SELLER_REGISTRATIONS_KEY);
+    const sellerRaw = window.localStorage.getItem(SELLER_REGISTRATION_KEY);
+
+    let loadedSellers: SellerRegistration[] = [];
+    if (sellersRaw) {
+      try {
+        const parsed = JSON.parse(sellersRaw) as SellerRegistration[];
+        loadedSellers = Array.isArray(parsed) ? parsed.filter((item) => Boolean(item?.id)) : [];
+      } catch {
+        loadedSellers = [];
+      }
+    }
+
+    if (!loadedSellers.length && sellerRaw) {
+      try {
+        const single = JSON.parse(sellerRaw) as SellerRegistration;
+        if (single?.id) {
+          loadedSellers = [single];
+        }
+      } catch {
+        loadedSellers = [];
+      }
+    }
+
+    setSellerRegistrations(loadedSellers);
+
+    const visitorRaw = window.localStorage.getItem(VISITOR_PROFILE_KEY);
+    if (!visitorRaw) {
+      setVisitorProfile(null);
+    } else {
+      try {
+        setVisitorProfile(JSON.parse(visitorRaw) as VisitorProfile);
+      } catch {
+        setVisitorProfile(null);
+      }
+    }
+  };
+
+  const saveSellerModeration = (next: SellerRegistration) => {
+    setSellerRegistrations((prev) => {
+      const found = prev.some((item) => item.id === next.id);
+      const updated = found ? prev.map((item) => (item.id === next.id ? next : item)) : [next, ...prev];
+      if (typeof window !== "undefined") {
+        window.localStorage.setItem(SELLER_REGISTRATIONS_KEY, JSON.stringify(updated));
+      }
+      return updated;
+    });
+
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem(SELLER_REGISTRATION_KEY, JSON.stringify(next));
+    }
+  };
+
+  const saveVisitorModeration = (next: VisitorProfile) => {
+    setVisitorProfile(next);
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem(VISITOR_PROFILE_KEY, JSON.stringify(next));
+    }
+  };
+
+  const moderationUntilIso = () => new Date(Date.now() + moderationHours * 60 * 60 * 1000).toISOString();
 
   const verifyPin = async () => {
     setAuthError(null);
@@ -383,6 +512,134 @@ export default function DashboardPage() {
     } finally {
       setQuickAssignBusy(false);
     }
+  };
+
+  const getSellerById = (sellerId: string) => sellerRegistrations.find((item) => item.id === sellerId) ?? null;
+
+  const certifySeller = (sellerId: string) => {
+    const seller = getSellerById(sellerId);
+    if (!seller) return;
+    saveSellerModeration({
+      ...seller,
+      certifiedBadge: true,
+      lastModerationNote: "Badge certifie active",
+    });
+    setModerationInfo(`Vendeur ${seller.storeName}: certification activee.`);
+  };
+
+  const setSellerStatus = (sellerId: string, status: SellerRegistration["status"]) => {
+    const seller = getSellerById(sellerId);
+    if (!seller) return;
+    saveSellerModeration({
+      ...seller,
+      status,
+      certifiedBadge: status === "validated" ? true : seller.certifiedBadge,
+      validatedBy: status === "validated" ? "admin" : seller.validatedBy,
+      lastModerationNote: `Statut modifie en ${status}`,
+    });
+    setModerationInfo(`Vendeur ${seller.storeName}: statut ${status} applique.`);
+  };
+
+  const warnSeller = (sellerId: string) => {
+    const seller = getSellerById(sellerId);
+    if (!seller) return;
+    saveSellerModeration({
+      ...seller,
+      warningCount: (seller.warningCount ?? 0) + 1,
+      lastModerationNote: "Avertissement admin envoye",
+    });
+    setModerationInfo(`Vendeur ${seller.storeName}: avertissement ajoute.`);
+  };
+
+  const banSellerTemporary = (sellerId: string) => {
+    const seller = getSellerById(sellerId);
+    if (!seller) return;
+    saveSellerModeration({
+      ...seller,
+      bannedUntil: moderationUntilIso(),
+      bannedPermanently: false,
+      lastModerationNote: `Ban temporaire ${moderationHours}h`,
+    });
+    setModerationInfo(`Vendeur ${seller.storeName}: ban temporaire ${moderationHours}h applique.`);
+  };
+
+  const banSellerPermanent = (sellerId: string) => {
+    const seller = getSellerById(sellerId);
+    if (!seller) return;
+    saveSellerModeration({
+      ...seller,
+      status: "refused",
+      bannedPermanently: true,
+      bannedUntil: null,
+      lastModerationNote: "Ban definitif",
+    });
+    setModerationInfo(`Vendeur ${seller.storeName}: ban definitif applique.`);
+  };
+
+  const clearSellerBan = (sellerId: string) => {
+    const seller = getSellerById(sellerId);
+    if (!seller) return;
+    saveSellerModeration({
+      ...seller,
+      bannedPermanently: false,
+      bannedUntil: null,
+      lastModerationNote: "Ban leve",
+    });
+    setModerationInfo(`Vendeur ${seller.storeName}: ban leve.`);
+  };
+
+  const validateVisitorInfos = () => {
+    if (!visitorProfile) return;
+    saveVisitorModeration({
+      ...visitorProfile,
+      status: "validated",
+      validatedBy: "admin",
+      lastModerationNote: "Informations visiteur validees",
+    });
+    setModerationInfo("Visiteur: informations validees.");
+  };
+
+  const warnVisitor = () => {
+    if (!visitorProfile) return;
+    saveVisitorModeration({
+      ...visitorProfile,
+      warningCount: (visitorProfile.warningCount ?? 0) + 1,
+      lastModerationNote: "Avertissement admin envoye",
+    });
+    setModerationInfo("Visiteur: avertissement ajoute.");
+  };
+
+  const banVisitorTemporary = () => {
+    if (!visitorProfile) return;
+    saveVisitorModeration({
+      ...visitorProfile,
+      bannedUntil: moderationUntilIso(),
+      bannedPermanently: false,
+      lastModerationNote: `Ban temporaire ${moderationHours}h`,
+    });
+    setModerationInfo(`Visiteur: ban temporaire ${moderationHours}h applique.`);
+  };
+
+  const banVisitorPermanent = () => {
+    if (!visitorProfile) return;
+    saveVisitorModeration({
+      ...visitorProfile,
+      bannedPermanently: true,
+      bannedUntil: null,
+      lastModerationNote: "Ban definitif",
+    });
+    setModerationInfo("Visiteur: ban definitif applique.");
+  };
+
+  const clearVisitorBan = () => {
+    if (!visitorProfile) return;
+    saveVisitorModeration({
+      ...visitorProfile,
+      bannedPermanently: false,
+      bannedUntil: null,
+      lastModerationNote: "Ban leve",
+    });
+    setModerationInfo("Visiteur: ban leve.");
   };
 
   const saveSellerPricing = () => {
@@ -940,6 +1197,135 @@ export default function DashboardPage() {
               )}
             </div>
           </article>
+        </section>
+
+        <section className="rounded-2xl border border-slate-700 bg-slate-900/70 p-4 md:p-5 grid gap-4">
+          <div className="flex items-center justify-between gap-3 flex-wrap">
+            <h2 className="font-semibold text-slate-100">Gestion vendeurs et visiteurs</h2>
+            <button
+              type="button"
+              onClick={loadModerationProfiles}
+              className="rounded-full bg-slate-700 px-3 py-2 text-xs font-semibold"
+            >
+              Rafraichir moderation
+            </button>
+          </div>
+
+          <div className="flex items-center gap-2 flex-wrap">
+            <label className="text-sm text-slate-300">Duree ban temporaire:</label>
+            <select
+              value={String(moderationHours)}
+              onChange={(event) => setModerationHours(Number(event.target.value))}
+              className="rounded-xl border border-slate-600 bg-slate-800 px-3 py-2 text-sm outline-none"
+            >
+              {MODERATION_DURATIONS.map((item) => (
+                <option key={item.hours} value={item.hours}>{item.label}</option>
+              ))}
+            </select>
+            <span className="text-xs text-slate-400">Applique au vendeur et au visiteur</span>
+          </div>
+
+          {moderationInfo ? <p className="text-sm text-emerald-300">{moderationInfo}</p> : null}
+
+          <div className="grid lg:grid-cols-2 gap-4">
+            <article className="rounded-xl border border-slate-700 bg-slate-800/60 p-4 grid gap-3">
+              <div className="flex items-center justify-between gap-2 flex-wrap">
+                <h3 className="font-semibold text-slate-100">Section gestion vendeurs</h3>
+                <Link href="/admin/vendeurs" className="rounded-full bg-sky-700 px-3 py-1.5 text-xs font-semibold">
+                  Ouvrir page complete
+                </Link>
+              </div>
+
+              {!sellerRegistrations.length ? (
+                <p className="text-sm text-slate-400">Aucune demande vendeur locale detectee.</p>
+              ) : (
+                <div className="grid gap-3 max-h-96 overflow-y-auto pr-1">
+                  {sellerRegistrations.map((seller) => (
+                    <article key={seller.id} className="rounded-xl border border-slate-700 bg-slate-900/75 p-3 grid gap-2">
+                      <p className="text-sm">
+                        <strong>{seller.firstName} {seller.lastName}</strong> • {seller.storeName}
+                      </p>
+                      <div className="flex gap-2 flex-wrap text-xs">
+                        <span className="rounded-full bg-slate-700 px-2 py-1">Statut: {seller.status.toUpperCase()}</span>
+                        <span className={`rounded-full px-2 py-1 ${seller.certifiedBadge ? "bg-sky-700" : "bg-slate-700"}`}>
+                          {seller.certifiedBadge ? "Certifie" : "Non certifie"}
+                        </span>
+                        <span className="rounded-full bg-slate-700 px-2 py-1">Avertissements: {seller.warningCount ?? 0}</span>
+                      </div>
+                      <p className="text-xs text-slate-300">Ban: {moderationLabel(seller)}</p>
+                      {seller.lastModerationNote ? <p className="text-xs text-slate-400">Derniere action: {seller.lastModerationNote}</p> : null}
+
+                      <div className="flex flex-wrap gap-2">
+                        <button type="button" onClick={() => certifySeller(seller.id)} className="rounded-full bg-sky-700 px-3 py-2 text-xs font-semibold">
+                          Certifier
+                        </button>
+                        <button type="button" onClick={() => setSellerStatus(seller.id, "validated")} className="rounded-full bg-emerald-700 px-3 py-2 text-xs font-semibold">
+                          Valide
+                        </button>
+                        <button type="button" onClick={() => setSellerStatus(seller.id, "pending")} className="rounded-full bg-amber-700 px-3 py-2 text-xs font-semibold">
+                          En attente
+                        </button>
+                        <button type="button" onClick={() => warnSeller(seller.id)} className="rounded-full bg-orange-600 px-3 py-2 text-xs font-semibold">
+                          Avertissement
+                        </button>
+                        <button type="button" onClick={() => banSellerTemporary(seller.id)} className="rounded-full bg-rose-700 px-3 py-2 text-xs font-semibold">
+                          Bani
+                        </button>
+                        <button type="button" onClick={() => banSellerPermanent(seller.id)} className="rounded-full bg-red-700 px-3 py-2 text-xs font-semibold">
+                          Bani definitif
+                        </button>
+                        <button type="button" onClick={() => clearSellerBan(seller.id)} className="rounded-full bg-cyan-700 px-3 py-2 text-xs font-semibold">
+                          Lever ban
+                        </button>
+                      </div>
+                    </article>
+                  ))}
+                </div>
+              )}
+            </article>
+
+            <article className="rounded-xl border border-slate-700 bg-slate-800/60 p-4 grid gap-3">
+              <div className="flex items-center justify-between gap-2 flex-wrap">
+                <h3 className="font-semibold text-slate-100">Section gestion visiteurs</h3>
+                <Link href="/mur" className="rounded-full bg-sky-700 px-3 py-1.5 text-xs font-semibold">
+                  Ouvrir mur visiteur
+                </Link>
+              </div>
+
+              {!visitorProfile ? (
+                <p className="text-sm text-slate-400">Aucun profil visiteur local detecte.</p>
+              ) : (
+                <>
+                  <p className="text-sm">Visiteur: <strong>{visitorProfile.username}</strong></p>
+                  <p className="text-sm">Telephone: <strong>{visitorProfile.phone || "--"}</strong></p>
+                  <p className="text-sm">Statut infos: <strong>{(visitorProfile.status || "pending").toUpperCase()}</strong></p>
+                  <p className="text-sm">Avertissements: <strong>{visitorProfile.warningCount ?? 0}</strong></p>
+                  <p className="text-sm">Ban: <strong>{moderationLabel(visitorProfile)}</strong></p>
+                  {visitorProfile.lastModerationNote ? (
+                    <p className="text-xs text-slate-400">Derniere action: {visitorProfile.lastModerationNote}</p>
+                  ) : null}
+
+                  <div className="flex flex-wrap gap-2">
+                    <button type="button" onClick={validateVisitorInfos} className="rounded-full bg-emerald-700 px-3 py-2 text-xs font-semibold">
+                      Valider infos
+                    </button>
+                    <button type="button" onClick={warnVisitor} className="rounded-full bg-orange-600 px-3 py-2 text-xs font-semibold">
+                      Avertissement
+                    </button>
+                    <button type="button" onClick={banVisitorTemporary} className="rounded-full bg-rose-700 px-3 py-2 text-xs font-semibold">
+                      Ban temporaire
+                    </button>
+                    <button type="button" onClick={banVisitorPermanent} className="rounded-full bg-red-700 px-3 py-2 text-xs font-semibold">
+                      Ban definitif
+                    </button>
+                    <button type="button" onClick={clearVisitorBan} className="rounded-full bg-cyan-700 px-3 py-2 text-xs font-semibold">
+                      Lever ban
+                    </button>
+                  </div>
+                </>
+              )}
+            </article>
+          </div>
         </section>
 
         <section className="rounded-2xl border border-slate-700 bg-slate-900/70 p-4 md:p-5 grid gap-4">
