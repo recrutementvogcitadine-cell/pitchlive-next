@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
-import { createClient as createServerClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { resolveDashboardRole } from "@/lib/dashboard-access";
+import { requireStrictAdmin } from "@/lib/admin-auth";
 import { KYC_BUCKET } from "@/lib/seller-workflow";
 
 type RequestBody = {
@@ -9,28 +8,8 @@ type RequestBody = {
   field?: "identity_document_url" | "profile_photo_url" | "selfie_document_url";
 };
 
-async function requireAdminAccess() {
-  const supabase = await createServerClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (!user?.id) return { ok: false as const, status: 401 };
-
-  const { data: usersRow } = await supabase
-    .from("users")
-    .select("role")
-    .eq("id", user.id)
-    .maybeSingle<{ role?: string | null }>();
-
-  const role = resolveDashboardRole({ email: user.email, usersRow });
-  if (!role) return { ok: false as const, status: 403 };
-
-  return { ok: true as const, role };
-}
-
 export async function POST(request: Request) {
-  const access = await requireAdminAccess();
+  const access = await requireStrictAdmin();
   if (!access.ok) {
     return NextResponse.json({ error: access.status === 401 ? "unauthorized" : "forbidden" }, { status: access.status });
   }

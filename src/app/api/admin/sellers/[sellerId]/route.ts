@@ -1,32 +1,11 @@
 import { NextResponse } from "next/server";
-import { createClient as createServerClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { resolveDashboardRole } from "@/lib/dashboard-access";
+import { requireStrictAdmin } from "@/lib/admin-auth";
 
 type ActionBody = {
-  action?: "approve" | "reject" | "confirm_payment";
+  action?: "approve" | "reject" | "confirm_payment" | "suspend" | "activate";
   subscriptionPlan?: "jour" | "semaine" | "mois";
 };
-
-async function requireAdminAccess() {
-  const supabase = await createServerClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (!user?.id) return { ok: false as const, status: 401 };
-
-  const { data: usersRow } = await supabase
-    .from("users")
-    .select("role")
-    .eq("id", user.id)
-    .maybeSingle<{ role?: string | null }>();
-
-  const role = resolveDashboardRole({ email: user.email, usersRow });
-  if (!role) return { ok: false as const, status: 403 };
-
-  return { ok: true as const, role };
-}
 
 function computeExpiry(plan: "jour" | "semaine" | "mois") {
   const now = new Date();
@@ -37,7 +16,7 @@ function computeExpiry(plan: "jour" | "semaine" | "mois") {
 }
 
 export async function PATCH(request: Request, context: { params: Promise<{ sellerId: string }> }) {
-  const access = await requireAdminAccess();
+  const access = await requireStrictAdmin();
   if (!access.ok) {
     return NextResponse.json({ error: access.status === 401 ? "unauthorized" : "forbidden" }, { status: access.status });
   }
@@ -70,12 +49,18 @@ export async function PATCH(request: Request, context: { params: Promise<{ selle
   } else if (action === "reject") {
     payload.seller_status = "rejected";
     payload.subscription_status = "unpaid";
-  } else {
+  } else if (action === "confirm_payment") {
     const plan = body?.subscriptionPlan ?? "mois";
     payload.seller_status = "active";
     payload.subscription_status = "paid";
     payload.subscription_plan = plan;
     payload.subscription_expiry_date = computeExpiry(plan);
+  } else if (action === "suspend") {
+    payload.seller_status = "approved";
+    payload.subscription_status = "expired";
+  } else {
+    payload.seller_status = "active";
+    payload.subscription_status = "paid";
   }
 
   const { data, error } = await admin

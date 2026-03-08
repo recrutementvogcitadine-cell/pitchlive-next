@@ -20,6 +20,25 @@ create table if not exists public.sellers (
   updated_at timestamptz not null default now()
 );
 
+alter table public.users
+add column if not exists country text;
+
+alter table public.users
+add column if not exists moderation_status text not null default 'active';
+
+create table if not exists public.reports (
+  id uuid primary key default gen_random_uuid(),
+  reporter_user_id uuid,
+  report_type text not null check (report_type in ('live_abusif', 'vendeur_frauduleux', 'contenu_interdit')),
+  target_type text not null check (target_type in ('live', 'seller', 'user')),
+  target_id text not null,
+  details text not null default '',
+  status text not null default 'open' check (status in ('open', 'in_review', 'resolved', 'dismissed')),
+  created_at timestamptz not null default now()
+);
+
+create index if not exists idx_reports_created_at on public.reports(created_at desc);
+
 create index if not exists idx_sellers_status on public.sellers(seller_status, subscription_status);
 create index if not exists idx_sellers_created_at on public.sellers(created_at desc);
 
@@ -37,6 +56,11 @@ for insert with check (auth.uid() = user_id);
 drop policy if exists sellers_update_own on public.sellers;
 create policy sellers_update_own on public.sellers
 for update using (auth.uid() = user_id) with check (auth.uid() = user_id);
+
+alter table public.reports enable row level security;
+
+drop policy if exists reports_all on public.reports;
+create policy reports_all on public.reports for all using (true) with check (true);
 
 -- Private storage bucket for KYC docs.
 insert into storage.buckets (id, name, public)

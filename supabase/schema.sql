@@ -7,7 +7,9 @@ create table if not exists public.users (
   id uuid primary key references auth.users(id) on delete cascade,
   username text not null unique,
   avatar_url text,
-  role text not null default 'viewer' check (role in ('viewer', 'agent', 'admin', 'owner')),
+  role text not null default 'user' check (role in ('user', 'seller', 'admin', 'viewer', 'agent', 'owner')),
+  country text,
+  moderation_status text not null default 'active' check (moderation_status in ('active', 'suspended', 'banned')),
   created_at timestamptz not null default now()
 );
 
@@ -101,6 +103,17 @@ create table if not exists public.sellers (
   updated_at timestamptz not null default now()
 );
 
+create table if not exists public.reports (
+  id uuid primary key default gen_random_uuid(),
+  reporter_user_id uuid,
+  report_type text not null check (report_type in ('live_abusif', 'vendeur_frauduleux', 'contenu_interdit')),
+  target_type text not null check (target_type in ('live', 'seller', 'user')),
+  target_id text not null,
+  details text not null default '',
+  status text not null default 'open' check (status in ('open', 'in_review', 'resolved', 'dismissed')),
+  created_at timestamptz not null default now()
+);
+
 create index if not exists idx_messages_live_session on public.messages(live_session_id, created_at desc);
 create index if not exists idx_likes_live_session on public.likes(live_session_id, created_at desc);
 create index if not exists idx_gifts_live_session on public.gifts(live_session_id, created_at desc);
@@ -108,6 +121,7 @@ create index if not exists idx_presence_live_session on public.live_presence(liv
 create index if not exists idx_push_subscriptions_user on public.push_subscriptions(user_id, enabled);
 create index if not exists idx_sellers_status on public.sellers(seller_status, subscription_status);
 create index if not exists idx_sellers_created_at on public.sellers(created_at desc);
+create index if not exists idx_reports_created_at on public.reports(created_at desc);
 
 alter table public.users enable row level security;
 alter table public.live_sessions enable row level security;
@@ -119,6 +133,7 @@ alter table public.push_subscriptions enable row level security;
 alter table public.live_presence enable row level security;
 alter table public.seller_store_profiles enable row level security;
 alter table public.sellers enable row level security;
+alter table public.reports enable row level security;
 
 -- MVP open policies (tighten for production with auth checks)
 drop policy if exists users_all on public.users;
@@ -156,6 +171,9 @@ create policy sellers_insert_own on public.sellers for insert with check (auth.u
 
 drop policy if exists sellers_update_own on public.sellers;
 create policy sellers_update_own on public.sellers for update using (auth.uid() = user_id) with check (auth.uid() = user_id);
+
+drop policy if exists reports_all on public.reports;
+create policy reports_all on public.reports for all using (true) with check (true);
 
 insert into storage.buckets (id, name, public)
 values ('kyc-documents', 'kyc-documents', false)
