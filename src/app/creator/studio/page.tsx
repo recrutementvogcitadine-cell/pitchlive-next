@@ -445,6 +445,18 @@ export default function CreatorStudioPage() {
     try {
       const rawAccess = window.localStorage.getItem("pitchlive.access");
       const access = rawAccess ? (JSON.parse(rawAccess) as { visitor?: boolean; seller?: boolean }) : null;
+      const rawViewer = window.localStorage.getItem("pitchlive.viewer");
+      const viewer = rawViewer
+        ? (JSON.parse(rawViewer) as { role?: string; status?: string })
+        : null;
+
+      // Hard guard: visitors cannot use seller camera/studio.
+      // If they try, send them to seller signup/subscription flow.
+      if ((viewer?.role ?? "") === "visitor") {
+        window.location.href = "/vendeur/inscription";
+        return;
+      }
+
       if (!access?.seller) {
         window.location.href = "/mur";
         return;
@@ -458,6 +470,8 @@ export default function CreatorStudioPage() {
       const rawRegistration = window.localStorage.getItem("pitchlive.seller.registration");
       if (!rawRegistration) {
         setSellerRegistration(null);
+        // Seller studio requires a seller registration profile.
+        window.location.href = "/vendeur/inscription";
         return;
       }
       try {
