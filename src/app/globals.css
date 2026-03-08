@@ -39,7 +39,7 @@ body {
 
 #creator-preview video,
 .agoraPlayer video {
-  object-fit: cover !important;
+  object-fit: contain !important;
   object-position: center center !important;
   transform: scaleX(1) !important;
 }

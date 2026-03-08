@@ -102,22 +102,22 @@ function getVerticalEncoderConfig() {
   }
 
   if (isMobileRuntime()) {
-    // Mobile quality profile (TikTok-like) on decent connectivity.
+    // Prefer stable portrait delivery on mobile over overly aggressive 1080p.
     return {
-      width: 1080,
-      height: 1920,
+      width: 720,
+      height: 1280,
       frameRate: 30,
-      bitrateMax: 4200,
-      bitrateMin: 1400,
+      bitrateMax: 1800,
+      bitrateMin: 600,
     };
   }
 
   return {
-    width: 1080,
-    height: 1920,
+    width: 720,
+    height: 1280,
     frameRate: 30,
-    bitrateMax: 4500,
-    bitrateMin: 1500,
+    bitrateMax: 2200,
+    bitrateMin: 700,
   };
 }
 
@@ -779,7 +779,7 @@ export default function CreatorStudioPage() {
             cameraId: pickedRear.deviceId,
             facingMode: "environment",
             encoderConfig: getVerticalEncoderConfig(),
-            optimizationMode: "detail",
+            optimizationMode: "motion",
           })
         );
       }
@@ -788,7 +788,7 @@ export default function CreatorStudioPage() {
         AgoraRTC.createCameraVideoTrack({
           facingMode: "environment",
           encoderConfig: getVerticalEncoderConfig(),
-          optimizationMode: "detail",
+          optimizationMode: "motion",
         })
       );
     } else {
@@ -798,7 +798,7 @@ export default function CreatorStudioPage() {
             cameraId: pickedFront.deviceId,
             facingMode: "user",
             encoderConfig: getVerticalEncoderConfig(),
-            optimizationMode: "detail",
+            optimizationMode: "motion",
           })
         );
       }
@@ -807,7 +807,7 @@ export default function CreatorStudioPage() {
         AgoraRTC.createCameraVideoTrack({
           facingMode: "user",
           encoderConfig: getVerticalEncoderConfig(),
-          optimizationMode: "detail",
+          optimizationMode: "motion",
         })
       );
     }
@@ -816,7 +816,7 @@ export default function CreatorStudioPage() {
     attempts.push(() =>
       AgoraRTC.createCameraVideoTrack({
         encoderConfig: getVerticalEncoderConfig(),
-        optimizationMode: "detail",
+        optimizationMode: "motion",
       })
     );
 
@@ -866,7 +866,7 @@ export default function CreatorStudioPage() {
           cameraId: undefined,
           facingMode: cameraFacing,
           encoderConfig: getVerticalEncoderConfig(),
-          optimizationMode: "detail",
+          optimizationMode: "motion",
         }
       );
 
@@ -1058,7 +1058,7 @@ export default function CreatorStudioPage() {
         cameraId: nextCamera.deviceId,
         facingMode: cameraFacing,
         encoderConfig: getVerticalEncoderConfig(),
-        optimizationMode: "detail",
+        optimizationMode: "motion",
       });
 
       await applyCameraTrackTuning(nextCameraTrack);
